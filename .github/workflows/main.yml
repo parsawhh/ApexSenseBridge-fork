@@ -1,10 +1,9 @@
-name: Build and Release Windows Binaries
+name: Release ApexSenseBridge
 
 on:
   push:
     tags:
       - 'v*'
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -12,54 +11,113 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup .NET 8 SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/checkout@v6
         with:
-          dotnet-version: 8.0.x
+          submodules: recursive
+          fetch-depth: 0
 
-      - name: Setup MSVC Environment
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build Translation Engine DLL (MSVC cl)
+      - name: Verify source version matches release tag
+        shell: powershell
         run: |
-          cl /O2 /LD /W3 ds2bt_engine.c /Fe:ds2bt_engine.dll
-          cl /O2 /W3 main_feeder.c ds2bt_engine.c /Fe:dualsense_feeder.exe
+          .\scripts\verify-version-consistency.ps1
 
-      - name: Publish Standalone C# Runner EXE
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Setup Inno Setup
         run: |
-          dotnet publish BeitongDualSenseBridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish
+          choco install innosetup --no-progress -y
 
-      - name: Build Native Tests
-        shell: bash
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: false
+
+      - name: Build Patched VIIPER
+        shell: powershell
         run: |
-          clang -O2 ds2bt_engine.c test_engine.c -o test_engine
-          ./test_engine
+          if (Test-Path scripts\build-viiper-windows.ps1) {
+            .\scripts\build-viiper-windows.ps1
+          }
+          if (Test-Path scripts\build-libviiper-windows.ps1) {
+            .\scripts\build-libviiper-windows.ps1
+          }
 
-      - name: Prepare Release Package (ZIP)
-        shell: bash
+      - name: Build Engine, Playnite Extension and Offline Installer
+        shell: powershell
+        env:
+          ASB_SIGNING_CERTIFICATE_BASE64: ${{ secrets.ASB_SIGNING_CERTIFICATE_BASE64 }}
+          ASB_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.ASB_SIGNING_CERTIFICATE_PASSWORD }}
         run: |
-          mkdir -p release_package
-          cp ds2bt_engine.dll dualsense_feeder.exe release_package/
-          cp publish/BeitongDualSenseBridge.exe release_package/
-          cp -r ui release_package/
-          cp README.md ARCHITECTURE_RESEARCH.md release_package/
-          cd release_package && 7z a -tzip ../beitong-dualsense-bridge-windows-x64.zip *
+          $buildParams = @{}
+          if (-not [string]::IsNullOrWhiteSpace($env:ASB_SIGNING_CERTIFICATE_BASE64)) {
+            $buildParams["Sign"] = $true
+          }
+          .\scripts\build-installer.ps1 @buildParams
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Test and verify release artifacts
+        shell: powershell
+        env:
+          ASB_SIGNING_CERTIFICATE_BASE64: ${{ secrets.ASB_SIGNING_CERTIFICATE_BASE64 }}
+        run: |
+          ctest --test-dir .\build-win -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $verifyParams = @{ CheckArtifacts = $true }
+          if (-not [string]::IsNullOrWhiteSpace($env:ASB_SIGNING_CERTIFICATE_BASE64)) {
+            $verifyParams["RequireSignatures"] = $true
+          }
+          .\scripts\verify-version-consistency.ps1 @verifyParams
+
+      - name: Extract Release Notes from CHANGELOG
+        shell: powershell
+        run: |
+          $raw = Get-Content -LiteralPath "CHANGELOG.md" -Raw
+          $tag = $env:GITHUB_REF_NAME
+          if ([string]::IsNullOrWhiteSpace($tag) -and $env:GITHUB_REF -and $env:GITHUB_REF.StartsWith("refs/tags/")) {
+            $tag = $env:GITHUB_REF.Substring("refs/tags/".Length)
+          }
+          $cleanTag = if (-not [string]::IsNullOrWhiteSpace($tag)) { $tag.Trim().TrimStart('v', 'V') } else { "" }
+          $lines = $raw -split '?\n'
+          $collecting = $false
+          $extracted = @()
+          if (-not [string]::IsNullOrWhiteSpace($cleanTag)) {
+            $headerPattern = '(?m)^##\s+' + [regex]::Escape($cleanTag) + '(?:\s+.*)?$'
+            foreach ($line in $lines) {
+              if ($collecting) {
+                if ($line -match '^##\s+') { break }
+                $extracted += $line
+              } elseif ($line -match $headerPattern) {
+                $collecting = $true
+              }
+            }
+          }
+          if ($extracted.Count -eq 0) {
+            foreach ($line in $lines) {
+              if ($collecting) {
+                if ($line -match '^##\s+') { break }
+                $extracted += $line
+              } elseif ($line -match '^##\s+') {
+                $collecting = $true
+              }
+            }
+          }
+          $notes = ($extracted -join [Environment]::NewLine).Trim()
+          [System.IO.File]::WriteAllText("dist/release-notes.md", $notes, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Extracted release notes ($($notes.Length) characters) to dist/release-notes.md"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
+          body_path: dist/release-notes.md
           files: |
-            beitong-dualsense-bridge-windows-x64.zip
-            ds2bt_engine.dll
-            dualsense_feeder.exe
-            publish/BeitongDualSenseBridge.exe
-          name: Release ${{ github.ref_name }}
+            dist/ApexSenseBridge-Setup.exe
+            dist/ApexSenseBridge-Portable.zip
+            dist/*.pext
+          generate_release_notes: false
           draft: false
-          prerelease: false
-          generate_release_notes: true
+          prerelease: ${{ github.ref_name == 'v1.0.2' || contains(github.ref_name, '-') }}
