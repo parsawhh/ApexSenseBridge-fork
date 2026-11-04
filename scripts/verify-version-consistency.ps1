@@ -73,7 +73,7 @@ function Assert-ArtifactVersion([string]$RelativePath) {
 }
 
 $script:Version = Get-RequiredMatch "CMakeLists.txt" `
-    '(?m)^project\(ApexSenseBridge VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES CXX\)\r?$' `
+    '(?m)^project\(ApexSenseBridge VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES (C )?CXX\)\r?$' `
     "canonical project version"
 
 if ([string]::IsNullOrWhiteSpace($ExpectedVersion) -and
