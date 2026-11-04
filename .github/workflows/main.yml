@@ -1,0 +1,65 @@
+name: Build and Release Windows Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup MSVC Environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build Translation Engine DLL (MSVC cl)
+        run: |
+          cl /O2 /LD /W3 ds2bt_engine.c /Fe:ds2bt_engine.dll
+          cl /O2 /W3 main_feeder.c ds2bt_engine.c /Fe:dualsense_feeder.exe
+
+      - name: Publish Standalone C# Runner EXE
+        run: |
+          dotnet publish BeitongDualSenseBridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish
+
+      - name: Build Native Tests
+        shell: bash
+        run: |
+          clang -O2 ds2bt_engine.c test_engine.c -o test_engine
+          ./test_engine
+
+      - name: Prepare Release Package (ZIP)
+        shell: bash
+        run: |
+          mkdir -p release_package
+          cp ds2bt_engine.dll dualsense_feeder.exe release_package/
+          cp publish/BeitongDualSenseBridge.exe release_package/
+          cp -r ui release_package/
+          cp README.md ARCHITECTURE_RESEARCH.md release_package/
+          cd release_package && 7z a -tzip ../beitong-dualsense-bridge-windows-x64.zip *
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            beitong-dualsense-bridge-windows-x64.zip
+            ds2bt_engine.dll
+            dualsense_feeder.exe
+            publish/BeitongDualSenseBridge.exe
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
