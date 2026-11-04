@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ApexSenseBridge VERSION 1.0.2 LANGUAGES CXX)
+project(ApexSenseBridge VERSION 1.0.2 LANGUAGES C CXX)
 set(ASB_RELEASE_LABEL "${PROJECT_VERSION}")
 add_compile_definitions(ASB_RELEASE_LABEL="${ASB_RELEASE_LABEL}")
 
@@ -46,8 +46,10 @@ add_library(asb_core STATIC
     src/flydigi/Apex5Protocol.cpp
     src/flydigi/Apex6Protocol.cpp
     src/flydigi/Apex5Device.cpp
+    src/beitong_bridge/beitong_bridge.c
+    src/beitong_bridge/beitong_adapter.c
 )
-target_include_directories(asb_core PUBLIC src)
+target_include_directories(asb_core PUBLIC src include)
 
 if(WIN32)
     target_sources(asb_core PRIVATE
