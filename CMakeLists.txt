@@ -46,6 +46,7 @@ add_library(asb_core STATIC
     src/flydigi/Apex5Protocol.cpp
     src/flydigi/Apex6Protocol.cpp
     src/flydigi/Apex5Device.cpp
+    src/flydigi/FlydigiVendor.cpp
     src/beitong_bridge/beitong_bridge.c
     src/beitong_bridge/beitong_adapter.c
 )
