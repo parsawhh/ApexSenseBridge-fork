@@ -1,5 +1,6 @@
 #include "beitong/BeitongDevice.h"
 #include "beitong/BeitongInputSource.h"
+#include "cli/CommandSupport.h"
 #include "cli/Commands.h"
 #include "dualsense/VirtualDualSense.h"
 #include "platform/PhysicalInputSource.h"
@@ -26,12 +27,10 @@ void printBeitongUsage() {
 }
 
 std::string describe(const HidDeviceInfo& info) {
-    std::string text;
-    if (!info.product.empty()) {
-        text.assign(info.product.begin(), info.product.end());
-    } else {
-        text = "Beitong controller";
-    }
+    // Narrow through the shared helper: assigning a wchar_t range straight into
+    // a std::string truncates every code unit (MSVC C4244).
+    std::string text = info.product.empty() ? std::string("Beitong controller")
+                                           : narrowAscii(info.product);
     char ids[32] = {};
     std::snprintf(ids, sizeof(ids), " [%04X:%04X]", info.vendorId, info.productId);
     return text + ids;
