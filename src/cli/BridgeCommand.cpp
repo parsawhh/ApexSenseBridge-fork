@@ -23,6 +23,7 @@
 #include "flydigi/Apex5Device.h"
 #include "flydigi/FlydigiVendor.h"
 #include "flydigi/Apex5Protocol.h"
+#include "beitong/BeitongVendor.h"
 #include "platform/HidTransport.h"
 #include "platform/AudioEndpointProtection.h"
 #include "platform/PhysicalControllerIsolation.h"
@@ -130,20 +131,69 @@ int commandBridgeTriggers(int argc, char** argv) {
                globalSessionStop->stopRequested() ||
                (sessionControl && sessionControl->stopRequested());
     };
+    bool beitongAttempted = false;
+    const auto openFlydigiVendor =
+        [&](std::string& openError, asb::cli::DeviceOpenFailure& failure)
+            -> std::unique_ptr<asb::VendorDevice> {
+        auto opened =
+            openSelectedIndex(options.deviceIndex, stopRequested, openError, failure);
+        if (!opened) return {};
+        return std::make_unique<asb::flydigi::FlydigiVendor>(std::move(*opened));
+    };
+    const auto openBeitongVendor =
+        [&](std::string& openError) -> std::unique_ptr<asb::VendorDevice> {
+        auto candidates = asb::beitong::BeitongVendor::findCandidates(openError);
+        if (candidates.empty()) {
+            if (openError.empty()) {
+                openError = "No Beitong controller vendor interface was found.";
+            }
+            return {};
+        }
+        std::size_t index = 0;
+        if (options.deviceIndex) {
+            if (*options.deviceIndex >= candidates.size()) {
+                openError = "Beitong device index " +
+                            std::to_string(*options.deviceIndex) +
+                            " is out of range; found " +
+                            std::to_string(candidates.size()) + " candidate(s).";
+                return {};
+            }
+            index = *options.deviceIndex;
+        }
+        return asb::beitong::BeitongVendor::open(candidates[index], openError);
+    };
     (void)asb::cli::retryDeviceOpen(
         asb::cli::DeviceOpenRetryPolicy{},
         [&](asb::cli::DeviceOpenFailure& failure) {
             error.clear();
-            auto opened =
-                openSelectedIndex(options.deviceIndex, stopRequested, error, failure);
-            if (!opened) return false;
-            device = std::make_unique<asb::flydigi::FlydigiVendor>(std::move(*opened));
-            return true;
+            beitongAttempted = false;
+            if (options.vendor == asb::cli::VendorPreference::Beitong) {
+                beitongAttempted = true;
+                device = openBeitongVendor(error);
+                return device != nullptr;
+            }
+            if (options.vendor == asb::cli::VendorPreference::Auto) {
+                std::string scanError;
+                const auto flydigiCandidates =
+                    asb::flydigi::Apex5Device::findCandidates(scanError);
+                if (flydigiCandidates.empty()) {
+                    // No Flydigi interface has appeared yet: a Beitong pad is
+                    // the only remaining automatic choice.
+                    beitongAttempted = true;
+                    device = openBeitongVendor(error);
+                    return device != nullptr;
+                }
+            }
+            device = openFlydigiVendor(error, failure);
+            return device != nullptr;
         },
         stopRequested);
     if (!device) {
         if (stopRequested()) return cancelStartup();
-        const std::string message = "APEX identity check failed: " + error;
+        const std::string message =
+            (beitongAttempted ? "Beitong controller open failed: "
+                              : "APEX identity check failed: ") +
+            error;
         std::cerr << message << '\n';
         return failSession(3, message);
     }
@@ -320,8 +370,7 @@ int commandBridgeTriggers(int argc, char** argv) {
 
     if (stopRequested()) return cancelStartup();
     startup.enter("physical-input");
-    auto inputSource = asb::platform::openPhysicalInputSource(
-        device->info(), options.xinputIndex, error);
+    auto inputSource = device->openInputSource(options.xinputIndex, error);
     if (!inputSource) {
         std::cerr << "Mandatory physical-input proxy creation failed: " << error << '\n';
         return failSession(8, "Mandatory physical-input proxy creation failed: " + error);
@@ -662,8 +711,7 @@ int commandBridgeTriggers(int argc, char** argv) {
         std::string reopenError;
         do {
             reopenError.clear();
-            inputSource = asb::platform::openPhysicalInputSource(
-                device->info(), options.xinputIndex, reopenError);
+            inputSource = device->openInputSource(options.xinputIndex, reopenError);
             if (!inputSource) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(25));
             }
@@ -725,8 +773,7 @@ int commandBridgeTriggers(int argc, char** argv) {
             }
             accumulatePhysicalInputStats(retiredInputStats, inputSource->stats());
             inputSource.reset();
-            inputSource = asb::platform::openPhysicalInputSource(
-                device->info(), options.xinputIndex, restartError);
+            inputSource = device->openInputSource(options.xinputIndex, restartError);
             if (!inputSource) return false;
             if (device->hasIdentity()) inputSource->setBatteryState(
                 device->batteryPercent(), device->chargeState());

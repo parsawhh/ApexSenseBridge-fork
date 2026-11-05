@@ -64,6 +64,9 @@ if(WIN32)
         src/platform/windows/WindowsSessionControl.cpp
         src/beitong/BeitongDevice.cpp
         src/beitong/BeitongInputSource.cpp
+        src/beitong/BeitongTriggerTranslator.cpp
+        src/beitong/BeitongXInputSource.cpp
+        src/beitong/BeitongVendor.cpp
     )
     target_link_libraries(asb_core PRIVATE setupapi hid cfgmgr32 ws2_32 xinput ole32)
 else()

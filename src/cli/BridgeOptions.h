@@ -14,6 +14,13 @@
 
 namespace asb::cli {
 
+// Physical-controller family selected for the bridge session.
+enum class VendorPreference {
+    Auto,
+    Flydigi,
+    Beitong,
+};
+
 struct ControllerCalibration {
     unsigned triggerStrength = 100;
     unsigned vibrationStrength = 100;
@@ -27,6 +34,7 @@ struct ControllerCalibration {
 struct BridgeCommandOptions {
     std::optional<std::size_t> deviceIndex;
     std::optional<std::chrono::seconds> duration;
+    VendorPreference vendor = VendorPreference::Auto;
     std::filesystem::path viiperExecutable;
     asb::dualsense::VirtualDualSenseBackend virtualBackend =
         asb::dualsense::VirtualDualSenseBackend::Auto;

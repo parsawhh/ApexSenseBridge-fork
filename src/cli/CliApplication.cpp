@@ -64,6 +64,7 @@ void printUsage() {
         << "  bridge-triggers [index] [--seconds N] [--viiper PATH]\n"
         << "                  [--telemetry-json PATH]\n"
         << "                  [--xinput-index 0..3]\n"
+        << "                  [--vendor auto|flydigi|beitong]\n"
         << "                  [--rumble]\n"
         << "                  [--sync-lightbar]\n"
         << "                  [--haptic-threshold 0..95] (APEX 4/5; APEX 6 always uses 0)\n"

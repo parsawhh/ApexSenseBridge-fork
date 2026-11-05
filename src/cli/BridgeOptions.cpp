@@ -20,6 +20,13 @@ std::optional<asb::dualsense::VirtualDualSenseBackend> parseBackend(
     return std::nullopt;
 }
 
+std::optional<VendorPreference> parseVendor(std::string_view name) noexcept {
+    if (name == "auto") return VendorPreference::Auto;
+    if (name == "flydigi") return VendorPreference::Flydigi;
+    if (name == "beitong") return VendorPreference::Beitong;
+    return std::nullopt;
+}
+
 } // namespace
 
 bool parseBridgeOptions(int argc, char** argv, BridgeCommandOptions& options,
@@ -89,6 +96,17 @@ bool parseBridgeOptions(int argc, char** argv, BridgeCommandOptions& options,
                 return false;
             }
             options.virtualBackend = *backend;
+        } else if (value == "--vendor") {
+            if (++i >= argc) {
+                error = "--vendor requires auto, flydigi, or beitong.";
+                return false;
+            }
+            const auto vendor = parseVendor(argv[i]);
+            if (!vendor) {
+                error = "--vendor requires auto, flydigi, or beitong.";
+                return false;
+            }
+            options.vendor = *vendor;
         } else if (value == "--telemetry-json") {
             if (++i >= argc) {
                 error = "--telemetry-json requires a file path.";
@@ -293,6 +311,7 @@ bool parseBridgeOptions(int argc, char** argv, BridgeCommandOptions& options,
 
 std::string_view bridgeCommandUsage() noexcept {
     return "Usage: ApexSenseBridge bridge-triggers [index] [--seconds N] "
+           "[--vendor auto|flydigi|beitong] "
            "[--viiper PATH] [--virtual-backend auto|integrated|sidecar] "
            "[--telemetry-json PATH] [--xinput-index 0..3] [--rumble] "
            "[--sync-lightbar] [--haptic-threshold 0..95] "
