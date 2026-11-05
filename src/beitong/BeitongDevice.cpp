@@ -22,6 +22,7 @@ constexpr std::uint16_t kGamepadUsage = 0x0005;
 constexpr std::uint16_t kSupportedProducts[] = {
     BEITONG_PID_KP70C2_PAD,
     BEITONG_PID_KP70C1_PAD,
+    BEITONG_PID_KP70C_XINPUT,
     BEITONG_PID_ZEUS_KP70,
     BEITONG_PID_ASURA_KP70,
     BEITONG_PID_KP70_WIRELESS,
@@ -33,6 +34,7 @@ constexpr std::uint16_t kDongleProducts[] = {
     BEITONG_PID_KP70_WIRELESS,
     BEITONG_PID_KP70C2_DONGLE,
     BEITONG_PID_KP70C1_DONGLE,
+    BEITONG_PID_KP70C_XINPUT,
 };
 
 bool isDongleProduct(std::uint16_t productId) noexcept {

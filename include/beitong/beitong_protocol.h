@@ -15,6 +15,9 @@
 #define BEITONG_PID_KP70C1_DONGLE     0x518B
 #define BEITONG_PID_KP70C2_PAD        0x518C
 #define BEITONG_PID_KP70C2_DONGLE     0x518D
+// XInput-mode dongle: the pad enumerates as an Xbox-compatible HID device.
+// Reported by real hardware as "BTP-KP70C XINPUT DONGLE".
+#define BEITONG_PID_KP70C_XINPUT      0x5174
 
 #define SONY_VENDOR_ID                0x054C
 #define DUALSENSE_PRODUCT_ID          0x0CE6
@@ -161,8 +164,18 @@ static_assert(sizeof(ds_usb_output_report_t) == 64, "DualSense USB output report
 static_assert(sizeof(ds_bt_output_report_t) == 78, "DualSense Bluetooth output report must be 78 bytes");
 static_assert(offsetof(ds_bt_output_report_t, crc32) == 74, "DualSense Bluetooth CRC must start at byte 74");
 #else
+/* MSVC compiles C in a pre-C11 mode by default, where _Static_assert is not a
+   keyword. Fall back to compile-time array bounds so the wire-format
+   invariants still break the build when they are violated. */
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
 _Static_assert(sizeof(ds_output_common_t) == 47, "DualSense common payload must match wire format");
 _Static_assert(sizeof(ds_usb_output_report_t) == 64, "DualSense USB output report must be 64 bytes");
 _Static_assert(sizeof(ds_bt_output_report_t) == 78, "DualSense Bluetooth output report must be 78 bytes");
 _Static_assert(offsetof(ds_bt_output_report_t, crc32) == 74, "DualSense Bluetooth CRC must start at byte 74");
+#else
+typedef char asb_ds_common_size_must_be_47[(sizeof(ds_output_common_t) == 47) ? 1 : -1];
+typedef char asb_ds_usb_report_size_must_be_64[(sizeof(ds_usb_output_report_t) == 64) ? 1 : -1];
+typedef char asb_ds_bt_report_size_must_be_78[(sizeof(ds_bt_output_report_t) == 78) ? 1 : -1];
+typedef char asb_ds_bt_crc_offset_must_be_74[(offsetof(ds_bt_output_report_t, crc32) == 74) ? 1 : -1];
+#endif
 #endif
