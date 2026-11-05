@@ -10,10 +10,13 @@
 #include "dualsense/AdaptiveTriggerBridge.h"
 #include "dualsense/AdaptiveTriggerTranslation.h"
 #include "dualsense/Apex6HapticBridge.h"
+#include "beitong/BeitongVendor.h"
+#include "core/VendorDevice.h"
 #include "dualsense/LightbarBridge.h"
 #include "dualsense/RumbleBridge.h"
 #include "dualsense/TouchpadGestureProfile.h"
 #include "flydigi/Apex5Device.h"
+#include "flydigi/FlydigiVendor.h"
 #include "flydigi/Apex4Protocol.h"
 #include "flydigi/Apex5Protocol.h"
 #include "platform/HidTransport.h"
@@ -69,6 +72,21 @@ std::string dpadDescription(std::uint8_t dpad) {
 }
 
 } // namespace
+
+// Vendor-neutral diagnostics: resolved per command so one implementation drives
+// either controller family. Declared here because the APEX-only helpers below
+// appear first in this file.
+std::unique_ptr<asb::VendorDevice> openAnyVendor(std::optional<std::size_t> index,
+                                                std::string& error);
+int runTestRtVendor(asb::VendorDevice& vendor);
+int runTestTriggerVendor(asb::VendorDevice& vendor,
+                         std::string_view side,
+                         std::string_view mode,
+                         unsigned int level,
+                         std::optional<std::uint8_t> customStart,
+                         std::optional<std::uint8_t> customForce,
+                         unsigned long seconds);
+int runInputStatusVendor(asb::VendorDevice& vendor, unsigned long seconds, bool json);
 
 int commandDiagnose(int argc, char** argv) {
     bool includeAllHid = false;
@@ -301,27 +319,50 @@ int commandInputStatus(int argc, char** argv) {
     }
 
     std::string error;
-    auto device = openSelectedIndex(deviceIndex, error);
-    if (!device) {
-        std::cerr << "APEX identity verification failed: " << error << '\n';
+    auto vendor = openAnyVendor(deviceIndex, error);
+    if (!vendor) {
+        std::cerr << "Controller identity verification failed: " << error << '\n';
         return 2;
     }
-    return runInputStatus(*device, seconds, json);
+    if (auto* apex = vendor->apex()) {
+        return runInputStatus(*apex, seconds, json);
+    }
+    return runInputStatusVendor(*vendor, seconds, json);
 }
 
 int commandList() {
-    std::string error;
-    const auto candidates = asb::flydigi::Apex5Device::findCandidates(error);
-    if (!error.empty()) {
-        std::cerr << "HID enumeration warning: " << error << "\n";
+    std::string apexError;
+    const auto apexCandidates = asb::flydigi::Apex5Device::findCandidates(apexError);
+    if (!apexError.empty()) {
+        std::cerr << "HID enumeration warning: " << apexError << "\n";
     }
-    if (candidates.empty()) {
-        std::cout << "No APEX 4/5/6 vendor HID interface found.\n";
+    if (!apexCandidates.empty()) {
+        std::cout << "APEX 4/5/6 — found " << apexCandidates.size() << " candidate(s):\n\n";
+        for (std::size_t i = 0; i < apexCandidates.size(); ++i) {
+            printDevice(apexCandidates[i], i);
+        }
+        std::cout << '\n';
+    }
+
+    std::string beitongError;
+    const auto beitongCandidates = asb::beitong::BeitongVendor::findCandidates(beitongError);
+    if (!beitongError.empty()) {
+        std::cerr << "Beitong enumeration warning: " << beitongError << "\n";
+    }
+    if (!beitongCandidates.empty()) {
+        std::cout << "Beitong — found " << beitongCandidates.size() << " candidate(s):\n\n";
+        for (std::size_t i = 0; i < beitongCandidates.size(); ++i) {
+            std::cout << "  [" << i << "] " << narrowAscii(beitongCandidates[i].product)
+                      << " (" << hex16(beitongCandidates[i].vendorId) << ':'
+                      << hex16(beitongCandidates[i].productId) << ")\n"
+                      << "      path: " << narrowAscii(beitongCandidates[i].path) << "\n\n";
+        }
+    }
+
+    if (apexCandidates.empty() && beitongCandidates.empty()) {
+        std::cout << "No supported controller vendor interface found "
+                     "(APEX 4/5/6 or Beitong Kunpeng).\n";
         return 2;
-    }
-    std::cout << "Found " << candidates.size() << " candidate(s):\n\n";
-    for (std::size_t i = 0; i < candidates.size(); ++i) {
-        printDevice(candidates[i], i);
     }
     return 0;
 }
@@ -348,13 +389,29 @@ int commandDryRun() {
 
 int commandIdentify(int argc, char** argv) {
     std::string error;
-    auto device = openSelected(argc, argv, error);
-    if (!device) {
+    auto vendor = openAnyVendor(parseIndex(argc, argv), error);
+    if (!vendor) {
         std::cerr << "Identity check failed: " << error << '\n';
         return 3;
     }
 
-    const auto& identity = device->identity();
+    const auto* apex = vendor->apex();
+    if (!apex) {
+        // Vendor-neutral identity: capabilities decide what the bridge may use.
+        const auto caps = vendor->capabilities();
+        std::cout << "Verified: " << vendor->describeIdentity() << '\n'
+                  << "Vendor: " << vendor->vendorName() << '\n'
+                  << "Connection: " << vendor->connectionName() << '\n';
+        std::cout << "Adaptive triggers: " << (caps.adaptiveTriggers ? "yes" : "no") << '\n'
+                  << "Grip rumble: " << (caps.rumble ? "yes" : "no") << '\n'
+                  << "Lightbar: " << (caps.lightbar ? "yes" : "no") << '\n'
+                  << "Onboard profiles: " << (caps.profiles ? "yes" : "no") << '\n'
+                  << "Realtime haptics: " << (caps.haptics ? "yes" : "no") << '\n'
+                  << "Gyro tuning: " << (caps.gyroTuning ? "yes" : "no") << '\n';
+        return 0;
+    }
+
+    const auto& identity = apex->identity();
     std::cout << "Verified: " << identity->describe() << '\n'
               << "Connection: " << (identity->isWired() ? "wired" : "dongle")
               << " (raw " << static_cast<unsigned int>(identity->connectionTypeRaw()) << ")\n";
@@ -366,7 +423,7 @@ int commandIdentify(int argc, char** argv) {
     }
     std::cout << "Adaptive triggers: ";
     const auto apex4Capability =
-        asb::flydigi::classifyApex4TriggerInterface(device->info());
+        asb::flydigi::classifyApex4TriggerInterface(apex->info());
     if (apex4Capability ==
         asb::flydigi::Apex4TriggerInterfaceCapability::Degraded32Byte) {
         std::cout << "partial (degraded 32-byte Apex 4 interface; LT may work, RT unavailable)\n"
@@ -454,37 +511,98 @@ int runTestRt(asb::flydigi::Apex5Device& device) {
     return 0;
 }
 
+// Vendor-neutral version of test-rt. It exercises the real translation chain:
+// a raw DualSense effect block goes through translateAdaptiveTrigger and then
+// through the vendor's effect queue, exactly like a live bridge session.
+int runTestRtVendor(asb::VendorDevice& vendor) {
+    std::string error;
+    std::cout << "Using: " << vendor.describeIdentity() << " ["
+              << vendor.backendName() << "]\n";
+    std::cout << "Applying a GENTLE RT resistance for about 1.5 seconds...\n";
+
+    std::array<std::uint8_t, 11> dualSenseEffect{};
+    dualSenseEffect[0] = 1;  // DualSense feedback/resistance
+    dualSenseEffect[1] = 70; // start
+    dualSenseEffect[2] = 30; // intentionally gentle resistance
+    const auto translated = asb::dualsense::translateAdaptiveTrigger(
+        asb::TriggerSide::Right, dualSenseEffect, 0);
+    if (!translated || !vendor.queueTriggerRaw(*translated, error)) {
+        std::cerr << "Write failed: " << error << "\n";
+        return 4;
+    }
+
+    constexpr auto duration = std::chrono::milliseconds(1500);
+    constexpr auto slice = std::chrono::milliseconds(25);
+    auto elapsed = std::chrono::milliseconds::zero();
+    while (elapsed < duration && !g_stopRequested.load(std::memory_order_relaxed)) {
+        std::this_thread::sleep_for(slice);
+        elapsed += slice;
+    }
+
+    if (!vendor.clearAll(error)) {
+        std::cerr << "WARNING: automatic reset write failed: " << error << "\n";
+        return 5;
+    }
+
+    std::cout << "RT reset to Normal.\n"
+              << "If you felt resistance begin part-way through RT, the full "
+                 "DualSense -> " << vendor.vendorName() << " path works.\n";
+    return 0;
+}
+
 int commandTestRt(int argc, char** argv) {
     std::string error;
-    auto device = openSelected(argc, argv, error);
-    if (!device) {
+    auto vendor = openAnyVendor(parseIndex(argc, argv), error);
+    if (!vendor) {
         std::cerr << "Error: " << error << "\n";
         return 3;
     }
-    return runTestRt(*device);
+    if (auto* apex = vendor->apex()) {
+        return runTestRt(*apex);
+    }
+    return runTestRtVendor(*vendor);
 }
 
-int runTestTrigger(asb::flydigi::Apex5Device& device,
-                   std::string_view side,
-                   std::string_view mode,
-                   unsigned int level,
-                   std::optional<std::uint8_t> customStart,
-                   std::optional<std::uint8_t> customForce,
-                   unsigned long seconds) {
-    std::string error;
-    std::cout << "Using: " << narrowAscii(device.info().product) << " ("
-              << hex16(device.info().vendorId) << ':' << hex16(device.info().productId) << ")\n";
-
-    std::vector<asb::TriggerSide> targets;
-    if (side == "lt" || side == "left" || side == "l2") {
-        targets.push_back(asb::TriggerSide::Left);
-    } else if (side == "rt" || side == "right" || side == "r2") {
-        targets.push_back(asb::TriggerSide::Right);
-    } else {
-        targets.push_back(asb::TriggerSide::Left);
-        targets.push_back(asb::TriggerSide::Right);
+// Resolves whichever supported controller is attached: Flydigi APEX first,
+// Beitong second. Diagnostics that only need the vendor seam go through this so
+// the same command drives either controller.
+std::unique_ptr<asb::VendorDevice> openAnyVendor(std::optional<std::size_t> index,
+                                                std::string& error) {
+    std::string apexError;
+    if (auto apex = openSelectedIndex(index, apexError)) {
+        return std::make_unique<asb::flydigi::FlydigiVendor>(std::move(*apex));
     }
 
+    std::string beitongError;
+    const auto candidates = asb::beitong::BeitongVendor::findCandidates(beitongError);
+    if (!candidates.empty()) {
+        const std::size_t chosen = index.value_or(0);
+        if (chosen >= candidates.size()) {
+            error = "Beitong device index " + std::to_string(chosen) +
+                    " is out of range; found " + std::to_string(candidates.size()) +
+                    " candidate(s).";
+            return {};
+        }
+        if (auto vendor = asb::beitong::BeitongVendor::open(candidates[chosen], beitongError)) {
+            return vendor;
+        }
+    }
+
+    // Neither family produced a device: report the APEX message unless the
+    // Beitong path had something more specific to say.
+    error = apexError;
+    if (!beitongError.empty() && error.empty()) error = beitongError;
+    if (error.empty()) error = "No supported controller vendor interface was found.";
+    return {};
+}
+
+// Builds the diagnostic effect used by test-trigger. Shared by the Flydigi and
+// vendor-neutral paths so both controllers get identical level tuning.
+asb::ForceTriggerCommand buildTestTriggerCommand(
+    std::string_view mode,
+    unsigned int level,
+    std::optional<std::uint8_t> customStart,
+    std::optional<std::uint8_t> customForce) {
     asb::ForceTriggerCommand cmd{};
     if (mode == "normal" || mode == "off" || mode == "clear") {
         cmd.mode = asb::TriggerMode::Normal;
@@ -510,6 +628,82 @@ int runTestTrigger(asb::flydigi::Apex5Device& device,
         std::uint8_t f = customForce.value_or(level == 1 ? 30 : (level == 2 ? 80 : (level == 3 ? 160 : 240)));
         cmd.params = {s, f, 0, 0, 0};
     }
+    return cmd;
+}
+
+std::vector<asb::TriggerSide> parseTestTriggerSides(std::string_view side) {
+    std::vector<asb::TriggerSide> targets;
+    if (side == "lt" || side == "left" || side == "l2") {
+        targets.push_back(asb::TriggerSide::Left);
+    } else if (side == "rt" || side == "right" || side == "r2") {
+        targets.push_back(asb::TriggerSide::Right);
+    } else {
+        targets.push_back(asb::TriggerSide::Left);
+        targets.push_back(asb::TriggerSide::Right);
+    }
+    return targets;
+}
+
+// Vendor-neutral trigger test: drives the same effect path the live bridge uses.
+int runTestTriggerVendor(asb::VendorDevice& vendor,
+                         std::string_view side,
+                         std::string_view mode,
+                         unsigned int level,
+                         std::optional<std::uint8_t> customStart,
+                         std::optional<std::uint8_t> customForce,
+                         unsigned long seconds) {
+    std::string error;
+    std::cout << "Using: " << vendor.describeIdentity() << " ["
+              << vendor.backendName() << "]\n";
+
+    const auto targets = parseTestTriggerSides(side);
+    auto cmd = buildTestTriggerCommand(mode, level, customStart, customForce);
+
+    std::cout << "Applying " << mode << " (level " << level << ") on " << side
+              << " for " << seconds << "s...\n";
+
+    for (auto targetSide : targets) {
+        cmd.side = targetSide;
+        if (!vendor.queueTriggerRaw(cmd, error)) {
+            std::cerr << "Write failed for "
+                      << (targetSide == asb::TriggerSide::Left ? "LT" : "RT")
+                      << ": " << error << "\n";
+            return 4;
+        }
+    }
+
+    if (seconds > 0) {
+        const auto duration = std::chrono::seconds(seconds);
+        constexpr auto slice = std::chrono::milliseconds(25);
+        auto elapsed = std::chrono::milliseconds::zero();
+        while (elapsed < duration && !g_stopRequested.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(slice);
+            elapsed += slice;
+        }
+        if (!vendor.clearAll(error)) {
+            std::cerr << "WARNING: automatic reset write failed: " << error << "\n";
+            return 5;
+        }
+        std::cout << "Triggers reset to Normal.\n";
+    } else {
+        std::cout << "Triggers armed (hold mode until clear).\n";
+    }
+    return 0;
+}
+
+int runTestTrigger(asb::flydigi::Apex5Device& device,
+                   std::string_view side,
+                   std::string_view mode,
+                   unsigned int level,
+                   std::optional<std::uint8_t> customStart,
+                   std::optional<std::uint8_t> customForce,
+                   unsigned long seconds) {
+    std::string error;
+    std::cout << "Using: " << narrowAscii(device.info().product) << " ("
+              << hex16(device.info().vendorId) << ':' << hex16(device.info().productId) << ")\n";
+
+    const auto targets = parseTestTriggerSides(side);
+    auto cmd = buildTestTriggerCommand(mode, level, customStart, customForce);
 
     std::cout << "Applying " << mode << " (level " << level << ") on " << side << " for " << seconds << "s...\n";
 
@@ -618,12 +812,17 @@ int commandTestTrigger(int argc, char** argv) {
     }
 
     std::string error;
-    auto device = openSelectedIndex(deviceIndex, error);
-    if (!device) {
+    auto vendor = openAnyVendor(deviceIndex, error);
+    if (!vendor) {
         std::cerr << "Error: " << error << "\n";
         return 3;
     }
-    return runTestTrigger(*device, side, mode, level, customStart, customForce, seconds);
+    // Flydigi keeps its controller-specific path (Apex 6 haptics, FORCEADAPT
+    // write contract); every other vendor uses the shared effect seam.
+    if (auto* apex = vendor->apex()) {
+        return runTestTrigger(*apex, side, mode, level, customStart, customForce, seconds);
+    }
+    return runTestTriggerVendor(*vendor, side, mode, level, customStart, customForce, seconds);
 }
 
 int runTestRumble(asb::flydigi::Apex5Device& device,
@@ -734,12 +933,20 @@ int commandTestRumble(int argc, char** argv) {
     }
 
     std::string error;
-    auto device = openSelectedIndex(deviceIndex, error);
-    if (!device) {
+    auto vendor = openAnyVendor(deviceIndex, error);
+    if (!vendor) {
         std::cerr << "Error: " << error << "\n";
         return 3;
     }
-    return runTestRumble(*device, leftMotor, rightMotor, seconds);
+    if (auto* apex = vendor->apex()) {
+        return runTestRumble(*apex, leftMotor, rightMotor, seconds);
+    }
+    // Deliberately refuses rather than silently doing nothing: the only grip
+    // rumble command this firmware accepts (0x76) drives the shoulder motors and
+    // is not emitted by this project at all.
+    std::cerr << "Grip rumble is not supported on this controller (" << vendor->vendorName()
+              << "). The bridge never sends the shoulder-motor command.\n";
+    return 12;
 }
 
 int commandTestProfileSwitch(int argc, char** argv) {
