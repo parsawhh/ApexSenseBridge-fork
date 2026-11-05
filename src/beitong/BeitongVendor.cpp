@@ -309,9 +309,10 @@ bool BeitongVendor::queueRumble(std::uint8_t lowFrequencyMotor,
 }
 
 bool BeitongVendor::supportsBowEmulation() const noexcept {
-    // The pad renders its own resistance ramp and shot breakpoint natively; a
-    // host-side bow retrigger must not stack on top of it.
-    return false;
+    // Match Flydigi APEX 5: allow AdaptiveTriggerBridge::updateTriggerPositions
+    // to transition DualSense 0x22 Bow effects from draw (Race) to rupture
+    // (SniperBreak) at ruptureAxis and re-arm at rearmAxis.
+    return true;
 }
 
 std::string_view BeitongVendor::vendorName() const noexcept { return "beitong"; }

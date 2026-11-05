@@ -683,7 +683,10 @@ std::vector<asb::TriggerSide> parseTestTriggerSides(std::string_view side) {
     return targets;
 }
 
-// Vendor-neutral trigger test: drives the same effect path the live bridge uses.
+// Vendor-neutral trigger test: synthesizes the exact Sony DualSense 11-byte
+// effect block for the requested mode/level and routes it through
+// translateAdaptiveTrigger -> vendor.queueTriggerRaw, so the diagnostic tests
+// the exact same translation pipeline that games use.
 int runTestTriggerVendor(asb::VendorDevice& vendor,
                          std::string_view side,
                          std::string_view mode,
@@ -696,14 +699,75 @@ int runTestTriggerVendor(asb::VendorDevice& vendor,
               << vendor.backendName() << "]\n";
 
     const auto targets = parseTestTriggerSides(side);
-    auto cmd = buildTestTriggerCommand(mode, level, customStart, customForce);
+    const std::uint8_t strengthCode =
+        static_cast<std::uint8_t>(std::clamp(level * 2U, 1U, 8U) - 1U); // 0..7 -> strength 2,4,6,8
+    const unsigned startZone = customStart ? (*customStart * 9U) / 255U
+                                           : (level == 1 ? 3U : (level == 2 ? 2U : 1U));
 
-    std::cout << "Applying " << mode << " (level " << level << ") on " << side
-              << " for " << seconds << "s...\n";
+    std::array<std::uint8_t, 11> dsEffect{};
+    if (mode == "normal" || mode == "off" || mode == "clear") {
+        dsEffect[0] = 0x05;
+    } else if (mode == "weapon" || mode == "break" || mode == "sniper") {
+        // Sony 0x25 Weapon: active zones startZone .. startZone+4, strengthCode.
+        const unsigned endZone = (std::min)(startZone + 4U, 8U);
+        const std::uint16_t mask =
+            static_cast<std::uint16_t>((1U << startZone) | (1U << endZone));
+        dsEffect[0] = 0x25;
+        dsEffect[1] = static_cast<std::uint8_t>(mask & 0xFFU);
+        dsEffect[2] = static_cast<std::uint8_t>(mask >> 8U);
+        dsEffect[3] = strengthCode;
+    } else if (mode == "vibration" || mode == "rattle" || mode == "recoil") {
+        // Sony 0x26 Vibration: active zones startZone..9, amplitude + frequency Hz.
+        const std::uint16_t mask = static_cast<std::uint16_t>((0x03FFU << startZone) & 0x03FFU);
+        std::uint32_t packed = 0;
+        for (unsigned z = startZone; z < 10U; ++z) {
+            packed |= (static_cast<std::uint32_t>(strengthCode) << (3U * z));
+        }
+        dsEffect[0] = 0x26;
+        dsEffect[1] = static_cast<std::uint8_t>(mask & 0xFFU);
+        dsEffect[2] = static_cast<std::uint8_t>(mask >> 8U);
+        dsEffect[3] = static_cast<std::uint8_t>(packed & 0xFFU);
+        dsEffect[4] = static_cast<std::uint8_t>((packed >> 8U) & 0xFFU);
+        dsEffect[5] = static_cast<std::uint8_t>((packed >> 16U) & 0xFFU);
+        dsEffect[6] = static_cast<std::uint8_t>((packed >> 24U) & 0xFFU);
+        dsEffect[9] = static_cast<std::uint8_t>(level == 1 ? 35 : (level == 2 ? 65 : (level == 3 ? 110 : 160)));
+    } else if (mode == "bow") {
+        // Sony 0x22 Bow: startZone..7, drawStrength + snapForce.
+        const unsigned endZone = (std::max)(startZone + 2U, 7U);
+        const std::uint16_t mask =
+            static_cast<std::uint16_t>((1U << startZone) | (1U << endZone));
+        dsEffect[0] = 0x22;
+        dsEffect[1] = static_cast<std::uint8_t>(mask & 0xFFU);
+        dsEffect[2] = static_cast<std::uint8_t>(mask >> 8U);
+        dsEffect[3] = static_cast<std::uint8_t>(strengthCode | (7U << 3U));
+    } else {
+        // Sony 0x21 Feedback/Resistance: active zones startZone..9.
+        const std::uint16_t mask = static_cast<std::uint16_t>((0x03FFU << startZone) & 0x03FFU);
+        std::uint32_t packed = 0;
+        for (unsigned z = startZone; z < 10U; ++z) {
+            packed |= (static_cast<std::uint32_t>(strengthCode) << (3U * z));
+        }
+        dsEffect[0] = 0x21;
+        dsEffect[1] = static_cast<std::uint8_t>(mask & 0xFFU);
+        dsEffect[2] = static_cast<std::uint8_t>(mask >> 8U);
+        dsEffect[3] = static_cast<std::uint8_t>(packed & 0xFFU);
+        dsEffect[4] = static_cast<std::uint8_t>((packed >> 8U) & 0xFFU);
+        dsEffect[5] = static_cast<std::uint8_t>((packed >> 16U) & 0xFFU);
+        dsEffect[6] = static_cast<std::uint8_t>((packed >> 24U) & 0xFFU);
+    }
+
+    std::cout << "Applying DualSense " << mode << " (level " << level << ") on "
+              << side << " for " << seconds << "s...\n";
 
     for (auto targetSide : targets) {
-        cmd.side = targetSide;
-        if (!vendor.queueTriggerRaw(cmd, error)) {
+        auto cmd = asb::dualsense::translateAdaptiveTrigger(targetSide, dsEffect, 0);
+        if (!cmd) {
+            cmd = buildTestTriggerCommand(mode, level, customStart, customForce);
+            cmd->side = targetSide;
+        } else if (customForce) {
+            cmd->params[cmd->mode == asb::TriggerMode::Race ? 1 : 2] = *customForce;
+        }
+        if (!vendor.queueTriggerRaw(*cmd, error)) {
             std::cerr << "Write failed for "
                       << (targetSide == asb::TriggerSide::Left ? "LT" : "RT")
                       << ": " << error << "\n";

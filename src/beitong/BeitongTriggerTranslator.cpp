@@ -41,20 +41,63 @@ constexpr std::uint8_t kModeGunVibration = 0x03;
 // rather than as an arbitrary analog percentage.
 
 constexpr unsigned kSonyZoneCount = 10;
-constexpr unsigned kSonyStrokeSpan = 192; // strokeForZone(10) upper bound.
+constexpr unsigned kSonyStrokeSpan = 192; // strokeForZone(z) = (z * 192 + 5) / 10.
+constexpr unsigned kNativeForceCeiling = 64; // DualSense 1..8 * 8 in AdaptiveTriggerTranslation.cpp.
+constexpr unsigned kNativeVibeCeiling = 80;  // DualSense 1..8 * 10 in AdaptiveTriggerTranslation.cpp.
 
-// Scales a 0..255-ish effect field to whole percent and clamps to 0..100.
-std::uint8_t scalePercent(std::uint8_t value) noexcept {
-    return static_cast<std::uint8_t>(
-        (static_cast<unsigned>(value) * 100U + 127U) / 255U);
+std::uint8_t clampPercent(int value) noexcept {
+    return static_cast<std::uint8_t>(std::clamp(value, 0, 100));
 }
 
-// Maps a DualSense stroke position back to the nearest Sony zone and then to
-// the stepped percentage the Beitong actuator exposes: z * 100 / 9.
-std::uint8_t zonePercent(unsigned stroke) noexcept {
-    unsigned zone = (stroke * kSonyZoneCount + kSonyStrokeSpan / 2U) / kSonyStrokeSpan;
-    if (zone >= kSonyZoneCount) zone = kSonyZoneCount - 1U;
-    return static_cast<std::uint8_t>(zone * 100U / (kSonyZoneCount - 1U));
+int scaleRange(int value, int inMin, int inMax, int outMin, int outMax) noexcept {
+    if (value <= inMin) return outMin;
+    if (value >= inMax) return outMax;
+    return outMin + ((value - inMin) * (outMax - outMin) + (inMax - inMin) / 2) /
+                        (inMax - inMin);
+}
+
+// Recovers the Sony zone index (0..9) from a strokeForZone(z) byte (0..173).
+unsigned zoneFromStroke(unsigned stroke) noexcept {
+    const unsigned zone = (stroke * kSonyZoneCount + kSonyStrokeSpan / 2U) / kSonyStrokeSpan;
+    return (std::min)(zone, kSonyZoneCount - 1U);
+}
+
+// Maps a Sony zone (0..9) onto the 0..100 percentage domain used by 0x56 frames.
+std::uint8_t zoneToPercent(unsigned zone) noexcept {
+    const unsigned clamped = (std::min)(zone, kSonyZoneCount - 1U);
+    return static_cast<std::uint8_t>(
+        (clamped * 100U + (kSonyZoneCount - 1U) / 2U) / (kSonyZoneCount - 1U));
+}
+
+// Scales a FORCEADAPT Race force byte (8..64 from DualSense 0x21/0x22, or up to
+// 255 from raw legacy effects) to Beitong's 15..100% range (matching
+// beitong_bridge.c:143).
+std::uint8_t scaleRaceForce(std::uint8_t raw) noexcept {
+    if (raw == 0) return 0;
+    if (raw <= kNativeForceCeiling) {
+        return clampPercent(scaleRange(raw, 8, static_cast<int>(kNativeForceCeiling), 15, 100));
+    }
+    return clampPercent(scaleRange(raw, 1, 255, 15, 100));
+}
+
+// Scales a FORCEADAPT SniperBreak force byte (8..64 from DualSense 0x25/0x22)
+// to Beitong's 25..100% range (matching beitong_bridge.c:151).
+std::uint8_t scaleBreakForce(std::uint8_t raw) noexcept {
+    if (raw == 0) return 0;
+    if (raw <= kNativeForceCeiling) {
+        return clampPercent(scaleRange(raw, 8, static_cast<int>(kNativeForceCeiling), 25, 100));
+    }
+    return clampPercent(scaleRange(raw, 1, 255, 25, 100));
+}
+
+// Scales a FORCEADAPT Vibration amplitude byte (10..80 from DualSense
+// 0x23/0x26/0x27) to Beitong's 20..100% range (matching beitong_bridge.c:159).
+std::uint8_t scaleVibeAmplitude(std::uint8_t raw) noexcept {
+    if (raw == 0) return 0;
+    if (raw <= kNativeVibeCeiling) {
+        return clampPercent(scaleRange(raw, 10, static_cast<int>(kNativeVibeCeiling), 20, 100));
+    }
+    return clampPercent(scaleRange(raw, 1, 255, 20, 100));
 }
 
 std::uint8_t sideCode(TriggerSide side) noexcept {
@@ -74,39 +117,51 @@ TriggerFrame BeitongTriggerTranslator::encode(const ForceTriggerCommand& command
     frame[2] = sideCode(command.side);
 
     switch (command.mode) {
-    case TriggerMode::Race:
-        // Mode 1: wall start, wall force.
+    case TriggerMode::Race: {
+        // Mode 1: wall start %, wall force % (15..100%).
         frame[3] = kModeRace;
-        frame[4] = zonePercent(command.params[0]);
-        frame[5] = scalePercent(command.params[1]);
+        const unsigned startZone = zoneFromStroke(command.params[0]);
+        frame[4] = zoneToPercent(startZone);
+        frame[5] = scaleRaceForce(command.params[1]);
         break;
+    }
 
     case TriggerMode::SniperBreak: {
-        // Mode 2: wall start, snap/click point, wall force, return force, 1.
-        // FORCEADAPT stores the snap point as a length relative to the start,
-        // so the absolute click position is start + span.
+        // Mode 2: wall start %, snap/click point %, wall force %, return force %, 1.
+        // Matches beitong_bridge.c:147-156 and AdaptiveTriggerTranslation.cpp:44-53:
+        // params[0] = start stroke, params[1] = span/length stroke, params[2] = force.
         frame[3] = kModeShotBreak;
-        const unsigned snap = static_cast<unsigned>(command.params[0]) +
-                              static_cast<unsigned>(command.params[1]);
-        frame[4] = zonePercent(command.params[0]);
-        frame[5] = zonePercent(snap);
-        frame[6] = scalePercent(command.params[2]);
-        frame[7] = static_cast<std::uint8_t>(frame[6] / 2U);
+        const unsigned startZone = zoneFromStroke(command.params[0]);
+        const unsigned endStroke = static_cast<unsigned>(command.params[0]) +
+                                   static_cast<unsigned>(command.params[1]);
+        const unsigned endZone = (std::max)(
+            startZone + 1U, (std::min)(zoneFromStroke(endStroke), kSonyZoneCount - 1U));
+        const std::uint8_t startPct = zoneToPercent(startZone);
+        const std::uint8_t endPct = clampPercent(
+            scaleRange(static_cast<int>(endZone), 0, 9,
+                       static_cast<int>(startPct) + 10, 100));
+        const std::uint8_t forcePct = scaleBreakForce(command.params[2]);
+        frame[4] = startPct;
+        frame[5] = endPct;
+        frame[6] = forcePct;
+        frame[7] = static_cast<std::uint8_t>(forcePct / 2U);
         frame[8] = 0x01;
         break;
     }
 
     case TriggerMode::RecoilRattle:
     case TriggerMode::Vibration: {
-        // Mode 3: start, cadence index (5..100, not Hz), amplitude.
+        // Mode 3: start %, cadence index (5..100 mapped from 10..240 Hz), amplitude %.
+        // Matches beitong_bridge.c:157-164 and AdaptiveTriggerTranslation.cpp:82-127.
         frame[3] = kModeGunVibration;
-        frame[4] = zonePercent(command.params[0]);
-        const std::uint8_t frequency =
-            command.params[3] != 0 ? command.params[3] : command.params[1];
-        std::uint8_t cadence = scalePercent(frequency);
-        cadence = (std::max)(cadence, std::uint8_t{5});
-        frame[5] = cadence;
-        frame[6] = scalePercent(command.params[2]);
+        const unsigned startZone = zoneFromStroke(command.params[0]);
+        frame[4] = zoneToPercent(startZone);
+        const std::uint8_t rawHz =
+            command.params[3] != 0 ? command.params[3]
+                                   : (command.params[1] > 1 ? command.params[1] : 100);
+        frame[5] = static_cast<std::uint8_t>(
+            std::clamp(scaleRange(rawHz, 10, 240, 5, 100), 5, 100));
+        frame[6] = scaleVibeAmplitude(command.params[2]);
         break;
     }
 
