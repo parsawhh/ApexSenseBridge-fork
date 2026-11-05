@@ -6,6 +6,8 @@
 
 #include "beitong/beitong_adapter.h"
 
+#include <string.h>
+
 static uint8_t clamp_u8(int val, int min_val, int max_val) {
     if (val < min_val) return (uint8_t)min_val;
     if (val > max_val) return (uint8_t)max_val;

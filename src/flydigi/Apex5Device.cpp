@@ -975,6 +975,16 @@ bool Apex5Device::takeAsyncWriteError(std::string& error) {
     return true;
 }
 
+bool Apex5Device::supportsBowEmulation() const noexcept {
+    // The Apex 4 translates bow/galloping natively; everything newer needs the
+    // host to retrigger the effect as the trigger travels.
+    return identity_ && !identity_->isApex4();
+}
+
+std::string_view Apex5Device::vendorName() const noexcept {
+    return "flydigi";
+}
+
 void Apex5Device::writerLoop() {
     constexpr unsigned kMaximumConsecutiveFailures = 10;
     unsigned consecutiveFailures = 0;

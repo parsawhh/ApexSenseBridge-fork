@@ -9,7 +9,7 @@
 
 namespace asb::dualsense {
 
-AdaptiveTriggerBridge::AdaptiveTriggerBridge(flydigi::Apex5Device& device, unsigned strengthPercent)
+AdaptiveTriggerBridge::AdaptiveTriggerBridge(VendorEffects& device, unsigned strengthPercent)
     : device_(device), strengthPercent_(strengthPercent) {}
 
 void AdaptiveTriggerBridge::handle(const DualSenseFeedback& feedback) {
@@ -79,9 +79,9 @@ void AdaptiveTriggerBridge::apply(TriggerSide side, std::uint8_t enableBits,
     }
     (side == TriggerSide::Left ? lastLeftType_ : lastRightType_)
         .store(effect[0], std::memory_order_relaxed);
-    const auto& identity = device_.identity();
+    const bool emulateBow = device_.supportsBowEmulation();
     std::optional<BowEmulation> bow;
-    if (identity && !identity->isApex4()) bow = describeBowEmulation(side, effect);
+    if (emulateBow) bow = describeBowEmulation(side, effect);
     {
         std::lock_guard lock(stateMutex_);
         auto& armed = armedBow_[side == TriggerSide::Left ? 0U : 1U];

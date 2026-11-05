@@ -1,7 +1,7 @@
 #pragma once
 
+#include "core/VendorEffects.h"
 #include "dualsense/DualSenseFeedback.h"
-#include "flydigi/Apex5Device.h"
 #include "haptics/HapticProcessor.h"
 
 #include <atomic>
@@ -42,7 +42,7 @@ struct RumbleBridgeStats {
 
 class RumbleBridge {
 public:
-    explicit RumbleBridge(flydigi::Apex5Device& device,
+    explicit RumbleBridge(VendorEffects& device,
                           haptics::HapticConfig hapticConfig = {}, unsigned strengthPercent = 100);
 
     void handle(const DualSenseFeedback& feedback);
@@ -59,7 +59,7 @@ private:
                             bool force,
                             bool audioOrigin);
 
-    flydigi::Apex5Device& device_;
+    VendorEffects& device_;
     haptics::HapticProcessor hapticProcessor_;
     unsigned strengthPercent_ = 100;
     RumbleLevels standard_{};

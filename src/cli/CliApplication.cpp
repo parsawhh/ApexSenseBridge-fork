@@ -220,6 +220,9 @@ int run(int argc, char** argv) {
     if (command == "virtual-ds") {
         return commandVirtualDs(argc, argv);
     }
+    if (command == "beitong-bridge") {
+        return commandBeitongBridge(argc, argv);
+    }
     if (command == "bridge-triggers") {
         return commandBridgeTriggers(argc, argv);
     }

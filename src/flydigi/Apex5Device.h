@@ -2,6 +2,7 @@
 
 #include "core/DeviceInfo.h"
 #include "core/TriggerEffect.h"
+#include "core/VendorEffects.h"
 #include "flydigi/Apex5Identity.h"
 #include "flydigi/Apex6Protocol.h"
 #include "platform/HidTransport.h"
@@ -12,6 +13,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -46,7 +48,7 @@ struct FeedbackWriteStats {
     std::uint64_t maximumWriteUs = 0;
 };
 
-class Apex5Device {
+class Apex5Device : public VendorEffects {
 public:
     // Historical API name retained for source compatibility. This transport
     // now supports Apex 4 (V1/DInput), Apex 5 (V2), and Apex 6 Pro (V3).
@@ -117,10 +119,12 @@ public:
     // effects are coalesced instead of replayed later.
     bool startAsyncWrites(std::string& error);
     void stopAsyncWrites() noexcept;
-    bool queueTriggerRaw(const ForceTriggerCommand& command, std::string& error);
+    bool queueTriggerRaw(const ForceTriggerCommand& command, std::string& error) override;
     bool queueRumble(std::uint8_t lowFrequencyMotor,
                      std::uint8_t highFrequencyMotor,
-                     std::string& error);
+                     std::string& error) override;
+    [[nodiscard]] bool supportsBowEmulation() const noexcept override;
+    [[nodiscard]] std::string_view vendorName() const noexcept override;
     [[nodiscard]] std::uint64_t asyncWriteRetries() const noexcept;
     [[nodiscard]] AsyncWriteStats asyncWriteStats() const noexcept;
     [[nodiscard]] std::optional<AsyncWritePolicy> asyncWritePolicy() const noexcept;

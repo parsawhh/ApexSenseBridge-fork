@@ -81,7 +81,7 @@ jobs:
             $tag = $env:GITHUB_REF.Substring("refs/tags/".Length)
           }
           $cleanTag = if (-not [string]::IsNullOrWhiteSpace($tag)) { $tag.Trim().TrimStart('v', 'V') } else { "" }
-          $lines = $raw -split '?\n'
+          $lines = $raw -split '\r?\n'
           $collecting = $false
           $extracted = @()
           if (-not [string]::IsNullOrWhiteSpace($cleanTag)) {

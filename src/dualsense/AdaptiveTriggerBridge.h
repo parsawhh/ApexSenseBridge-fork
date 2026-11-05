@@ -1,8 +1,8 @@
 #pragma once
 
+#include "core/VendorEffects.h"
 #include "dualsense/AdaptiveTriggerTranslation.h"
 #include "dualsense/DualSenseFeedback.h"
-#include "flydigi/Apex5Device.h"
 
 #include <array>
 #include <atomic>
@@ -40,7 +40,7 @@ struct AdaptiveTriggerBridgeStats {
 
 class AdaptiveTriggerBridge {
 public:
-    explicit AdaptiveTriggerBridge(flydigi::Apex5Device& device, unsigned strengthPercent = 100);
+    explicit AdaptiveTriggerBridge(VendorEffects& device, unsigned strengthPercent = 100);
     void handle(const DualSenseFeedback& feedback);
     void updateTriggerPositions(std::uint8_t left, std::uint8_t right);
     [[nodiscard]] bool failed() const noexcept;
@@ -62,7 +62,7 @@ private:
     std::array<std::optional<ArmedBow>, 2> armedBow_;
     std::atomic_bool bowArmed_{false};
 
-    flydigi::Apex5Device& device_;
+    VendorEffects& device_;
     unsigned strengthPercent_ = 100;
     std::optional<ForceTriggerCommand> lastLeft_;
     std::optional<ForceTriggerCommand> lastRight_;

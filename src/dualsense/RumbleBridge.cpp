@@ -17,7 +17,7 @@ unsigned difference(std::uint8_t left, std::uint8_t right) noexcept {
 
 } // namespace
 
-RumbleBridge::RumbleBridge(flydigi::Apex5Device& device,
+RumbleBridge::RumbleBridge(VendorEffects& device,
                            haptics::HapticConfig hapticConfig, unsigned strengthPercent)
     : device_(device), hapticProcessor_(hapticConfig), strengthPercent_(strengthPercent) {}
 

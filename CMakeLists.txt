@@ -61,6 +61,8 @@ if(WIN32)
         src/platform/windows/WindowsPhysicalControllerIsolation.cpp
         src/platform/windows/WindowsPhysicalInputSource.cpp
         src/platform/windows/WindowsSessionControl.cpp
+        src/beitong/BeitongDevice.cpp
+        src/beitong/BeitongInputSource.cpp
     )
     target_link_libraries(asb_core PRIVATE setupapi hid cfgmgr32 ws2_32 xinput ole32)
 else()
@@ -88,6 +90,7 @@ add_executable(ApexSenseBridge
     src/cli/CommandSupport.cpp
     src/cli/JsonSupport.cpp
     src/cli/DeviceCommands.cpp
+    src/cli/BeitongCommand.cpp
     src/cli/VirtualDualSenseCommand.cpp
     src/cli/BridgeCommand.cpp
     ${ASB_RC_FILE}
