@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7fb">
+  <title>Tasks — To-do list</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #20243a;
+      background: #f6f7fb;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; padding: 48px 18px; }
+    button, input { font: inherit; }
+    .app { width: min(100%, 620px); margin: 0 auto; }
+    .eyebrow { margin: 0 0 8px; color: #7068d8; font-size: .78rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(2rem, 6vw, 2.8rem); letter-spacing: -.05em; }
+    .subtitle { margin: 8px 0 28px; color: #71758a; }
+    .panel { overflow: hidden; border: 1px solid #e8e9f1; border-radius: 18px; background: #fff; box-shadow: 0 16px 50px #3334560d; }
+    .add-form { display: flex; gap: 10px; padding: 18px; border-bottom: 1px solid #ececf3; }
+    .add-form input { min-width: 0; flex: 1; padding: 12px 14px; border: 1px solid #e4e5ee; border-radius: 10px; outline: none; }
+    .add-form input:focus { border-color: #7770df; box-shadow: 0 0 0 3px #7770df20; }
+    button { cursor: pointer; }
+    .add-button { padding: 0 18px; border: 0; border-radius: 10px; color: white; background: #655bd6; font-weight: 700; }
+    .add-button:hover { background: #554bc4; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; }
+    .filters { display: flex; gap: 5px; }
+    .filter { padding: 7px 10px; border: 0; border-radius: 8px; color: #777b8d; background: transparent; font-size: .9rem; }
+    .filter[aria-pressed="true"] { color: #554bc4; background: #f0efff; font-weight: 700; }
+    .clear-button { padding: 7px 0 7px 8px; border: 0; color: #777b8d; background: transparent; font-size: .85rem; }
+    .clear-button:hover:not(:disabled) { color: #bd4051; }
+    .clear-button:disabled { cursor: default; opacity: .45; }
+    .task-list { margin: 0; padding: 0; list-style: none; }
+    .task { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 12px 18px; border-top: 1px solid #f0f0f5; }
+    .task input[type="checkbox"] { width: 19px; height: 19px; flex: 0 0 auto; accent-color: #655bd6; cursor: pointer; }
+    .task-label { flex: 1; overflow-wrap: anywhere; }
+    .task.done .task-label { color: #9a9daf; text-decoration: line-through; }
+    .delete-button { width: 34px; height: 34px; border: 0; border-radius: 8px; color: #9497a6; background: transparent; font-size: 1.2rem; }
+    .delete-button:hover { color: #bd4051; background: #fff1f2; }
+    .empty { padding: 36px 18px; color: #898c9d; text-align: center; }
+    .count { color: #85889a; font-size: .85rem; white-space: nowrap; }
+    @media (max-width: 430px) {
+      body { padding: 30px 12px; }
+      .add-form, .toolbar { padding-right: 12px; padding-left: 12px; }
+      .toolbar { flex-wrap: wrap; }
+      .filters { order: 3; width: 100%; justify-content: center; }
+      .task { padding-right: 12px; padding-left: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <p class="eyebrow">A little more focus</p>
+    <h1>My tasks</h1>
+    <p class="subtitle">Keep track of what you want to get done.</p>
+
+    <section class="panel" aria-label="To-do list">
+      <form class="add-form" id="add-form">
+        <input id="task-input" type="text" maxlength="240" placeholder="What needs to be done?" aria-label="New task" autocomplete="off" required>
+        <button class="add-button" type="submit">Add task</button>
+      </form>
+      <div class="toolbar">
+        <span class="count" id="count" aria-live="polite"></span>
+        <nav class="filters" aria-label="Filter tasks">
+          <button class="filter" type="button" data-filter="all" aria-pressed="true">All</button>
+          <button class="filter" type="button" data-filter="active" aria-pressed="false">Active</button>
+          <button class="filter" type="button" data-filter="completed" aria-pressed="false">Completed</button>
+        </nav>
+        <button class="clear-button" id="clear-completed" type="button">Clear completed</button>
+      </div>
+      <ul class="task-list" id="task-list"></ul>
+      <div class="empty" id="empty-state" hidden>No tasks here. Add one above to get started.</div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const STORAGE_KEY = 'simple-todo.tasks.v1';
+      const form = document.querySelector('#add-form');
+      const input = document.querySelector('#task-input');
+      const list = document.querySelector('#task-list');
+      const count = document.querySelector('#count');
+      const empty = document.querySelector('#empty-state');
+      const clearCompleted = document.querySelector('#clear-completed');
+      const filterButtons = [...document.querySelectorAll('.filter')];
+      let filter = 'all';
+      let tasks = loadTasks();
+
+      function loadTasks() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+          return Array.isArray(parsed)
+            ? parsed.filter(task => task && typeof task.id === 'string' && typeof task.text === 'string' && typeof task.completed === 'boolean')
+            : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function saveTasks() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+        } catch {
+          count.textContent = 'Could not save — browser storage may be unavailable';
+        }
+      }
+
+      function render() {
+        list.replaceChildren();
+        const visible = tasks.filter(task => filter === 'all' || (filter === 'active' ? !task.completed : task.completed));
+        for (const task of visible) {
+          const item = document.createElement('li');
+          item.className = `task${task.completed ? ' done' : ''}`;
+
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = task.completed;
+          checkbox.setAttribute('aria-label', `Mark ${task.text} ${task.completed ? 'active' : 'completed'}`);
+          checkbox.addEventListener('change', () => {
+            tasks = tasks.map(current => current.id === task.id ? { ...current, completed: checkbox.checked } : current);
+            saveTasks();
+            render();
+          });
+
+          const label = document.createElement('span');
+          label.className = 'task-label';
+          label.textContent = task.text;
+
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.className = 'delete-button';
+          remove.textContent = '×';
+          remove.setAttribute('aria-label', `Delete ${task.text}`);
+          remove.addEventListener('click', () => {
+            tasks = tasks.filter(current => current.id !== task.id);
+            saveTasks();
+            render();
+          });
+
+          item.append(checkbox, label, remove);
+          list.append(item);
+        }
+        const activeCount = tasks.filter(task => !task.completed).length;
+        count.textContent = `${activeCount} ${activeCount === 1 ? 'task' : 'tasks'} left`;
+        empty.hidden = visible.length > 0;
+        empty.textContent = tasks.length === 0 ? 'No tasks yet. Add one above to get started.' : 'No tasks match this filter.';
+        clearCompleted.disabled = !tasks.some(task => task.completed);
+        filterButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.filter === filter)));
+      }
+
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        tasks.unshift({ id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`, text, completed: false });
+        saveTasks();
+        render();
+        form.reset();
+        input.focus();
+      });
+
+      filterButtons.forEach(button => button.addEventListener('click', () => {
+        filter = button.dataset.filter;
+        render();
+      }));
+
+      clearCompleted.addEventListener('click', () => {
+        tasks = tasks.filter(task => !task.completed);
+        saveTasks();
+        render();
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>
