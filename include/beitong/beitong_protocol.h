@@ -8,16 +8,21 @@
 // Beitong KP70C2 Hardware IDs
 // ============================================================================
 #define BEITONG_VENDOR_ID                0x20BC
+#define BEITONG_ALTER_VENDOR_ID          0x20DD
+#define BEITONG_PID_ZEUS_KP70            0x5125
+#define BEITONG_PID_ASURA_KP70           0x5126
+#define BEITONG_PID_KP70_WIRELESS        0x5128
+#define BEITONG_PID_KP70C1_PAD           0x518A
+#define BEITONG_PID_KP70C1_DONGLE        0x518B
 #define BEITONG_PID_KP70C2_PAD           0x518C
 #define BEITONG_PID_KP70C2_DONGLE        0x518D
-#define BEITONG_PID_ASURA_KP70           0x5126
-#define BEITONG_PID_ZEUS_KP70            0x5125
 
 // ============================================================================
 // DualSense Hardware IDs (emulated)
 // ============================================================================
 #define SONY_VENDOR_ID                   0x054C
 #define DUALSENSE_PRODUCT_ID             0x0CE6
+#define DUALSENSE_EDGE_PRODUCT_ID        0x0DF2
 
 // ============================================================================
 // DualSense Output Report Valid Flags
@@ -32,6 +37,8 @@
 // ============================================================================
 // Format: 02 56 <side> <mode> <params...>
 // side: 0x00 = Left Trigger (LT), 0x01 = Right Trigger (RT)
+#define BT_TRIGGER_LEFT                       0x00
+#define BT_TRIGGER_RIGHT                      0x01
 
 #define DS_TRIGGER_OFF                       0x05 // Resets stops to neutral
 #define DS_TRIGGER_FEEDBACK                  0x21 // Continuous resistance curve
@@ -42,14 +49,13 @@
 #define DS_TRIGGER_MACHINE                   0x27 // Dual-frequency mechanical rumble
 
 typedef enum {
-    BT_TRIGGER_OFF           = 0x00,
+    BT_TRIGGER_OFF            = 0x00,
     BT_TRIGGER_RACE_RESISTANCE = 0x01,   // Continuous damping
     BT_TRIGGER_SHOT_BREAKPOINT = 0x02,   // Two-stage tactile wall
-    BT_TRIGGER_GUN_VIBRATION = 0x03      // Recoil pulsing
+    BT_TRIGGER_GUN_VIBRATION  = 0x03    // Recoil pulsing
 } bt_trigger_mode_t;
 
-// Format: 02 76 01 <subcmd> <params...>  (Rumble)
-// subcmd: 0=right, 1=left, 2=right, 3=left, 4=right group A
+// Format: 02 76 01 <subcmd> <params...> (Rumble)
 typedef enum {
     BT_RUMBLE_SUBCMD_RIGHT_A  = 0x04,
     BT_RUMBLE_SUBCMD_LEFT_A   = 0x05,
@@ -61,26 +67,22 @@ typedef enum {
 // ============================================================================
 // DualSense USB Output Report (Report ID 0x02)
 // ============================================================================
+#pragma pack(push, 1)
 typedef struct {
-    uint8_t  report_id;           // 0x02
     uint8_t  valid_flag0;
-    uint8_t  motor_right;        // High frequency / light grip rumble (0-255)
-    uint8_t  motor_left;         // Low frequency / heavy grip rumble (0-255)
+    uint8_t  valid_flag1;
+    uint8_t  motor_right;
+    uint8_t  motor_left;
     uint8_t  headphone_volume;
     uint8_t  speaker_volume;
     uint8_t  internal_mic_volume;
     uint8_t  audio_flags;
     uint8_t  mute_button_led;
     uint8_t  power_save_control;
-
-    // Right Trigger (11 bytes: mode + 10 params)
     uint8_t  right_trigger_mode;
     uint8_t  right_trigger_params[10];
-
-    // Left Trigger (11 bytes: mode + 10 params)
     uint8_t  left_trigger_mode;
     uint8_t  left_trigger_params[10];
-
     uint32_t host_timestamp;
     uint8_t  reduce_motor_power;
     uint8_t  audio_flags2;
@@ -96,46 +98,23 @@ typedef struct {
 } ds_output_common_t;
 
 typedef struct {
-    uint8_t report_id;            // 0x02
+    uint8_t report_id;
     ds_output_common_t common;
-    uint8_t padding[16];          // Pads to 64 bytes total
+    uint8_t padding[16];
 } ds_usb_output_report_t;
 
-// ============================================================================
-// DualSense Bluetooth Output Report (Report ID 0x31)
-// ============================================================================
 typedef struct {
-    uint8_t report_id;            // 0x31
-    uint8_t seq_tag;              // (seq << 4) | 0x00
-    uint8_t tag;                  // 0x10
+    uint8_t report_id;
+    uint8_t seq_tag;
+    uint8_t tag;
     ds_output_common_t common;
     uint8_t padding[24];
-    uint32_t crc32;               // 0xA2 Seeded CRC32
+    uint32_t crc32;
 } ds_bt_output_report_t;
+#pragma pack(pop)
 
-// ============================================================================
-// DualSense Input Report (Report ID 0x01) - what host sees
-// ============================================================================
-typedef struct {
-    uint8_t  report_id;           // 0x01
-    int16_t  lx;                  // Left stick X (-128..127, centered at 0)
-    int16_t  ly;                  // Left stick Y
-    int16_t  rx;                  // Right stick X
-    int16_t  ry;                  // Right stick Y
-    uint8_t  l2;                  // Left trigger (0-255)
-    uint8_t  r2;                  // Right trigger (0-255)
-    uint8_t  dpad;                // D-pad (0-7, 8=neutral)
-    uint8_t  buttons;             // Face buttons (15 bits)
-    uint8_t  extra_buttons;       // Additional buttons (16 bits)
-    int16_t  gyro_x;
-    int16_t  gyro_y;
-    int16_t  gyro_z;
-    int16_t  accel_x;
-    int16_t  accel_y;
-    int16_t  accel_z;
-    uint8_t  battery_percentage;
-    uint8_t  charge_state;        // 0=discharging, 1=charging, 2=full
-} ds_input_report_t;
+#define DS_OUTPUT_TAG_BT 0x10
+#define DS_BT_CRC_SEED   0xA2
 
 // ============================================================================
 // Controllers state tracked by the bridge
@@ -143,46 +122,27 @@ typedef struct {
 typedef struct {
     bool is_bluetooth;
     uint8_t bt_sequence;
-    
-    // Deadzone settings
     uint8_t lt_deadzone_start;
     uint8_t lt_deadzone_end;
     uint8_t rt_deadzone_start;
     uint8_t rt_deadzone_end;
-    
-    // Gain profiles (Beitong defaults)
-    float trigger_force_gain;     // 1.40f default
-    float trigger_vibe_gain;      // 1.45f default
-    float rumble_gain;            // 1.30f default
-    uint8_t min_force_floor;      // 20 default
-    
-    // Whether to sync trigger with grip rumble
+    float trigger_force_gain;
+    float trigger_vibe_gain;
+    float rumble_gain;
+    uint8_t min_force_floor;
     bool sync_trigger_with_grip;
-    
-    // Emulated DualSense input report (what host sees)
     uint8_t ds_input_report[64];
-    
-    // Curve type
-    int curve_type;               // 0=Linear, 1=Intense, 2=Gentle
-    
-    // Motor states (Beitong side)
+    int curve_type;
     uint8_t motor_left;
     uint8_t motor_right;
-    
-    // Trigger mode state
     uint8_t lt_mode;
     uint8_t lt_params[10];
     uint8_t rt_mode;
     uint8_t rt_params[10];
-    
-    // Sequence tracking
     uint64_t input_updates;
     uint64_t output_reports;
 } beitong_bridge_state_t;
 
-// ============================================================================
-// Translation result - packets to send to Beitong controller
-// ============================================================================
 #define MAX_BT_PACKETS 3
 typedef struct {
     uint8_t data[10];
@@ -201,14 +161,6 @@ void beitong_bridge_init(beitong_bridge_state_t *b, bool is_bluetooth);
 void beitong_bridge_set_gains(beitong_bridge_state_t *b, float force_gain, float vibe_gain, float rumble_gain, uint8_t min_floor);
 void beitong_bridge_set_curve(beitong_bridge_state_t *b, int curve_type);
 void beitong_bridge_set_deadzones(beitong_bridge_state_t *b, uint8_t lt_start, uint8_t lt_end, uint8_t rt_start, uint8_t rt_end);
-
-int beitong_translate_game_to_beitong(beitong_bridge_state_t *b,
-                                       const uint8_t *ds_report, size_t ds_len,
-                                       beitong_translation_result_t *result);
-
-int beitong_translate_beitong_to_game(beitong_bridge_state_t *b,
-                                      const uint8_t *bt_input_data, size_t bt_len,
-                                      uint8_t *out_ds_input_report, size_t out_max_len);
-
+int beitong_translate_game_to_beitong(beitong_bridge_state_t *b, const uint8_t *ds_report, size_t ds_len, beitong_translation_result_t *result);
+int beitong_translate_beitong_to_game(beitong_bridge_state_t *b, const uint8_t *bt_input_data, size_t bt_len, uint8_t *out_ds_input_report, size_t out_max_len);
 uint32_t beitong_crc32(uint8_t seed, const uint8_t *data, size_t len);
-
