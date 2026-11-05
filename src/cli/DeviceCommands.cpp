@@ -126,6 +126,12 @@ int commandDiagnose(int argc, char** argv) {
 std::optional<asb::flydigi::Apex5Device> openSelectedIndex(
     std::optional<std::size_t> requested, std::string& error);
 
+// Shared by every controller: the loop only needs a PhysicalInputSource.
+int runInputStatusSource(asb::platform::PhysicalInputSource* input,
+                         const std::string& warning,
+                         unsigned long seconds,
+                         bool json);
+
 int runInputStatus(asb::flydigi::Apex5Device& device,
                    unsigned long seconds,
                    bool json) {
@@ -136,7 +142,30 @@ int runInputStatus(asb::flydigi::Apex5Device& device,
         std::cerr << "Complete APEX input source unavailable: " << error << '\n';
         return 3;
     }
-    const std::string warning = error;
+    return runInputStatusSource(input.get(), error, seconds, json);
+}
+
+int runInputStatusVendor(asb::VendorDevice& vendor, unsigned long seconds, bool json) {
+    std::string error;
+    auto input = vendor.openInputSource(std::nullopt, error);
+    if (!input) {
+        std::cerr << "Complete " << vendor.vendorName()
+                  << " input source unavailable: " << error << '\n';
+        return 3;
+    }
+    return runInputStatusSource(input.get(), error, seconds, json);
+}
+
+int runInputStatusSource(asb::platform::PhysicalInputSource* inputPtr,
+                         const std::string& warning,
+                         unsigned long seconds,
+                         bool json) {
+    std::string error;
+    // The body below was written against a unique_ptr; keep its `input->` syntax.
+    struct InputRef {
+        asb::platform::PhysicalInputSource* ptr;
+        asb::platform::PhysicalInputSource* operator->() const { return ptr; }
+    } input{inputPtr};
 
     asb::dualsense::DualSenseInputState lastState{};
     std::uint64_t stateChanges = 0;
@@ -331,17 +360,13 @@ int commandInputStatus(int argc, char** argv) {
 }
 
 int commandList() {
+    // The Tray parses this output: it must start with "Found N candidate(s):"
+    // followed by one block per interface (VID:PID / Usage page / Reports / Path),
+    // whichever controller family the interface belongs to.
     std::string apexError;
     const auto apexCandidates = asb::flydigi::Apex5Device::findCandidates(apexError);
     if (!apexError.empty()) {
         std::cerr << "HID enumeration warning: " << apexError << "\n";
-    }
-    if (!apexCandidates.empty()) {
-        std::cout << "APEX 4/5/6 — found " << apexCandidates.size() << " candidate(s):\n\n";
-        for (std::size_t i = 0; i < apexCandidates.size(); ++i) {
-            printDevice(apexCandidates[i], i);
-        }
-        std::cout << '\n';
     }
 
     std::string beitongError;
@@ -349,20 +374,32 @@ int commandList() {
     if (!beitongError.empty()) {
         std::cerr << "Beitong enumeration warning: " << beitongError << "\n";
     }
-    if (!beitongCandidates.empty()) {
-        std::cout << "Beitong — found " << beitongCandidates.size() << " candidate(s):\n\n";
-        for (std::size_t i = 0; i < beitongCandidates.size(); ++i) {
-            std::cout << "  [" << i << "] " << narrowAscii(beitongCandidates[i].product)
-                      << " (" << hex16(beitongCandidates[i].vendorId) << ':'
-                      << hex16(beitongCandidates[i].productId) << ")\n"
-                      << "      path: " << narrowAscii(beitongCandidates[i].path) << "\n\n";
-        }
-    }
 
-    if (apexCandidates.empty() && beitongCandidates.empty()) {
+    const std::size_t total = apexCandidates.size() + beitongCandidates.size();
+    if (total == 0) {
         std::cout << "No supported controller vendor interface found "
                      "(APEX 4/5/6 or Beitong Kunpeng).\n";
         return 2;
+    }
+
+    std::cout << "Found " << total << " candidate(s):\n\n";
+    std::size_t index = 0;
+    for (const auto& candidate : apexCandidates) {
+        printDevice(candidate, index++);
+        std::cout << '\n';
+    }
+    for (const auto& candidate : beitongCandidates) {
+        std::cout << "[" << index++ << "] "
+                  << (candidate.product.empty() ? std::string("Beitong controller")
+                                                : narrowAscii(candidate.product))
+                  << "\n"
+                  << "    VID:PID      " << hex16(candidate.vendorId) << ":"
+                  << hex16(candidate.productId) << "\n"
+                  << "    Usage page   " << hex16(candidate.usagePage) << "  usage "
+                  << hex16(candidate.usage) << "\n"
+                  << "    Reports      input=" << candidate.inputReportLength
+                  << " output=" << candidate.outputReportLength << " bytes\n"
+                  << "    Path         " << narrowAscii(candidate.path) << "\n\n";
     }
     return 0;
 }
@@ -443,25 +480,27 @@ int commandIdentify(int argc, char** argv) {
 
 int commandClear(int argc, char** argv) {
     std::string error;
-    auto device = openSelected(argc, argv, error);
-    if (!device) {
+    auto vendor = openAnyVendor(parseIndex(argc, argv), error);
+    if (!vendor) {
         std::cerr << "Error: " << error << "\n";
         return 3;
     }
-    if (device->identity() && device->identity()->isApex6()) {
-        if (!device->disableApex6Haptics(error)) {
-            std::cerr << "Error while stopping Apex 6 haptics: " << error << '\n';
-            return 4;
+    if (auto* device = vendor->apex()) {
+        if (device->identity() && device->identity()->isApex6()) {
+            if (!device->disableApex6Haptics(error)) {
+                std::cerr << "Error while stopping Apex 6 haptics: " << error << '\n';
+                return 4;
+            }
+            std::cout << "Apex 6 trigger and grip haptics stopped.\n";
+            return 0;
         }
-        std::cout << "Apex 6 trigger and grip haptics stopped.\n";
-        return 0;
     }
     std::string triggerError;
     std::string rumbleError;
-    const bool triggersCleared = device->clearAll(triggerError);
-    const bool rumbleStopped = device->stopRumble(rumbleError);
+    const bool triggersCleared = vendor->clearAll(triggerError);
+    const bool rumbleStopped = vendor->stopRumble(rumbleError);
     if (!triggersCleared || !rumbleStopped) {
-        std::cerr << "Error while clearing APEX effects:";
+        std::cerr << "Error while clearing " << vendor->vendorName() << " effects:";
         if (!triggersCleared) std::cerr << " triggers=" << triggerError;
         if (!rumbleStopped) std::cerr << " rumble=" << rumbleError;
         std::cerr << '\n';
