@@ -6,6 +6,7 @@
 #include "dualsense/LightbarBridge.h"
 #include "dualsense/AdaptiveTriggerBridge.h"
 #include "dualsense/EffectStrength.h"
+#include "flydigi/Apex5Device.h"
 #include "flydigi/Apex5Identity.h"
 #include "flydigi/Apex5Protocol.h"
 

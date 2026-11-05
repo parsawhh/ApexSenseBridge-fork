@@ -3,6 +3,7 @@
 #endif
 
 #include "dualsense/AdaptiveTriggerBridge.h"
+#include "flydigi/Apex5Device.h"
 #include "flydigi/Apex4Protocol.h"
 #include "flydigi/Apex5Protocol.h"
 

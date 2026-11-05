@@ -5,6 +5,7 @@
 #include "dualsense/Apex6HapticBridge.h"
 #include "dualsense/Apex6PcmGain.h"
 #include "dualsense/Apex6TriggerEffect.h"
+#include "flydigi/Apex5Device.h"
 #include "flydigi/Apex6Protocol.h"
 
 #include <algorithm>
