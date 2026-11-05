@@ -63,6 +63,7 @@ if(WIN32)
         src/platform/windows/WindowsPhysicalInputSource.cpp
         src/platform/windows/WindowsSessionControl.cpp
         src/beitong/BeitongDevice.cpp
+        src/beitong/BeitongHybridInputSource.cpp
         src/beitong/BeitongInputSource.cpp
         src/beitong/BeitongTriggerTranslator.cpp
         src/beitong/BeitongXInputSource.cpp

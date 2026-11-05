@@ -1,5 +1,6 @@
 #include "beitong/BeitongVendor.h"
 
+#include "beitong/BeitongHybridInputSource.h"
 #include "beitong/BeitongXInputSource.h"
 #include "platform/HidTransport.h"
 
@@ -55,6 +56,25 @@ std::string toUtf8(const std::wstring& text) {
         }
     }
     return out;
+}
+
+bool matchesGamepadCollection(const HidDeviceInfo& info) noexcept {
+    return info.vendorId == BeitongVendor::kVendorId &&
+           isSupportedProduct(info.productId) &&
+           info.usagePage == 0x0001U && info.usage == 0x0005U;
+}
+
+// Locates the HID gamepad collection that carries the fast stick stream.
+bool findGamepadInterface(HidDeviceInfo& found) {
+    std::string enumError;
+    const auto devices = platform::enumerateHidDevices(enumError);
+    for (const auto& device : devices) {
+        if (matchesGamepadCollection(device)) {
+            found = device;
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -200,6 +220,20 @@ VendorWriteStats BeitongVendor::triggerWriteStats() const noexcept {
 std::unique_ptr<platform::PhysicalInputSource> BeitongVendor::openInputSource(
     std::optional<unsigned int> xinputIndex,
     std::string& error) {
+    // Prefer the hybrid source: the HID gamepad collection carries the stick
+    // axes at roughly 2.2 kHz, while XInput supplies the independent LT/RT that
+    // the HID report cannot express (it encodes one differential trigger axis).
+    // Fall back to plain XInput if that collection is absent, so other BeiTong
+    // models still work with slower sticks.
+    HidDeviceInfo gamepadInterface{};
+    if (findGamepadInterface(gamepadInterface)) {
+        std::string hybridError;
+        if (auto hybrid = BeitongHybridInputSource::open(
+                gamepadInterface, xinputIndex, hybridError)) {
+            error.clear();
+            return hybrid;
+        }
+    }
     return BeitongXInputSource::open(info_.productId, xinputIndex, error);
 }
 
