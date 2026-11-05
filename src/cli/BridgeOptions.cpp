@@ -335,6 +335,20 @@ bool applyControllerCalibration(BridgeCommandOptions& options,
             (std::min)(options.vibrationStrengthPercent, 100U);
         return true;
     }
+    if (verifiedModel == "beitong") {
+        // Beitong uses the common trigger/rumble strengths (inheriting from the
+        // APEX 5 slot when the Tray supplies all three APEX calibrations) and
+        // never enables RGB, gyro or onboard profile switching.
+        if (const auto& c = options.controllerCalibrations[1]) {
+            options.triggerStrengthPercent = c->triggerStrength;
+            options.vibrationStrengthPercent = c->vibrationStrength;
+            options.hapticThresholdPercent = c->threshold;
+            options.routeRumble = c->rumble;
+        }
+        options.syncLightbar = false;
+        options.apexProfileSlot.reset();
+        return true;
+    }
     const int index = verifiedModel == "apex4" ? 0 : verifiedModel == "apex5" ? 1 :
                       verifiedModel == "apex6" ? 2 : -1;
     if (index < 0 || !options.controllerCalibrations[index]) {

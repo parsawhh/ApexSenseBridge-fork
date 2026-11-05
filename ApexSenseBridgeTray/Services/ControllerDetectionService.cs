@@ -180,6 +180,7 @@ namespace ApexSenseBridgeTray.Services
         {
             return string.Equals(status, "apex4", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(status, "apex6", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(status, "beitong", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(status, "unsupported", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -189,6 +190,7 @@ namespace ApexSenseBridgeTray.Services
             if (Regex.IsMatch(output, @"Verified:\s+Apex 4\b", RegexOptions.IgnoreCase)) return "apex4";
             if (Regex.IsMatch(output, @"Verified:\s+Apex 5\b", RegexOptions.IgnoreCase)) return "apex5";
             if (Regex.IsMatch(output, @"Verified:\s+Apex 6 Pro\b", RegexOptions.IgnoreCase)) return "apex6";
+            if (Regex.IsMatch(output, @"Verified:\s+Beitong\b", RegexOptions.IgnoreCase)) return "beitong";
             return "unsupported";
         }
 

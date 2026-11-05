@@ -1243,6 +1243,8 @@ bool apexGameDevicePaths(const HidDeviceInfo& apexInterface,
     const auto expectedId = id.str();
     const bool apex4DInput = flydigi::isApex4Product(
         apexInterface.vendorId, apexInterface.productId);
+    const bool isBeitong = apexInterface.vendorId == 0x20BC ||
+                           apexInterface.vendorId == 0x20DD;
     bool foundHidGamepad = false;
     bool foundUsbGameInterface = false;
     bool foundHidAuxiliaryInput = !apex4DInput;
@@ -1291,6 +1293,12 @@ bool apexGameDevicePaths(const HidDeviceInfo& apexInterface,
     }
     if (!foundHidGamepad || !foundUsbGameInterface ||
         !foundHidAuxiliaryInput || !foundUsbAuxiliaryInput) {
+        if (isBeitong) {
+            if (paths.empty() && !apexInterface.instanceId.empty()) {
+                paths.push_back(apexInterface.instanceId);
+            }
+            return !paths.empty();
+        }
         error = apex4DInput
             ? "Could not identify the complete APEX 4 MI_00 gamepad and MI_01 "
               "auxiliary-input HID/USB set; refusing to start with partial isolation."

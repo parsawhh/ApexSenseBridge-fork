@@ -86,7 +86,7 @@ namespace ApexSenseBridgeTray.Services
                 if (!sessionInProgress && controller != null) controller = status;
                 return false;
             }
-            if (status != "apex4" && status != "apex5" && status != "apex6" && status != "disconnected")
+            if (status != "apex4" && status != "apex5" && status != "apex6" && status != "beitong" && status != "disconnected")
                 return false;
             var previous = controller;
             controller = status;

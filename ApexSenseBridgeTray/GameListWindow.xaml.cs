@@ -1200,7 +1200,8 @@ namespace ApexSenseBridgeTray
             bool isApex4 = string.Equals(status, "apex4", StringComparison.OrdinalIgnoreCase);
             bool isApex5 = string.Equals(status, "apex5", StringComparison.OrdinalIgnoreCase);
             bool isApex6 = string.Equals(status, "apex6", StringComparison.OrdinalIgnoreCase);
-            bool isConnected = isApex4 || isApex5 || isApex6;
+            bool isBeitong = string.Equals(status, "beitong", StringComparison.OrdinalIgnoreCase);
+            bool isConnected = isApex4 || isApex5 || isApex6 || isBeitong;
             sessionManager?.UpdateRecoveryController(isConnected);
             UpdateSettingsView();
             UpdateApexProfileSelector();
@@ -1222,6 +1223,11 @@ namespace ApexSenseBridgeTray
             {
                 fullLabel = "Flydigi Apex 6 Pro";
                 shortLabel = "Apex 6 Pro";
+            }
+            else if (isBeitong)
+            {
+                fullLabel = "Beitong Kunpeng 70C";
+                shortLabel = "Beitong";
             }
             else if (string.Equals(status, "unsupported", StringComparison.OrdinalIgnoreCase))
             {
@@ -1292,7 +1298,7 @@ namespace ApexSenseBridgeTray
         private void UpdateDashboardStatus()
         {
             if (!viewInitialized) return;
-            sessionManager?.UpdateRecoveryController(lastControllerStatus == "apex4" || lastControllerStatus == "apex5" || lastControllerStatus == "apex6");
+            sessionManager?.UpdateRecoveryController(lastControllerStatus == "apex4" || lastControllerStatus == "apex5" || lastControllerStatus == "apex6" || lastControllerStatus == "beitong");
             var recovery = sessionManager != null ? sessionManager.Recovery : null;
             UpdateRecoveryPanel(recovery);
             bool isActive = sessionManager != null && sessionManager.IsSessionActive;
@@ -2176,10 +2182,15 @@ namespace ApexSenseBridgeTray
 
         #region Settings View
 
+        private static string CalibrationKeyForStatus(string status)
+        {
+            return string.Equals(status, "beitong", StringComparison.OrdinalIgnoreCase) ? "apex5" : status;
+        }
+
         private void UpdateSettingsView()
         {
             if (settings == null) return;
-            var calibration = settings.GetControllerCalibration(lastControllerStatus);
+            var calibration = settings.GetControllerCalibration(CalibrationKeyForStatus(lastControllerStatus));
             bool canEdit = calibration != null;
             var displayed = calibration ?? new ControllerCalibration();
             updatingEffectSettings = true;
@@ -2204,7 +2215,7 @@ namespace ApexSenseBridgeTray
             PnlHapticThresholdSettings.Visibility = SliderVibrationThreshold.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
             TxtControllerCalibrationStatus.Text = canEdit
                 ? string.Format(LocalizationManager.Get("Loc_ControllerCalibrationReady"),
-                    lastControllerStatus == "apex4" ? "Apex 4" : lastControllerStatus == "apex5" ? "Apex 5" : "Apex 6 Pro")
+                    lastControllerStatus == "apex4" ? "Apex 4" : lastControllerStatus == "apex5" ? "Apex 5" : lastControllerStatus == "beitong" ? "Beitong Kunpeng 70C" : "Apex 6 Pro")
                 : LocalizationManager.Get("Loc_ControllerCalibrationLocked");
             UpdateEffectLabels();
             updatingEffectSettings = false;
@@ -2246,7 +2257,7 @@ namespace ApexSenseBridgeTray
             if (updatingEffectSettings || settings == null || !IsLoaded) return;
             lock (settings)
             {
-                var calibration = settings.GetControllerCalibration(lastControllerStatus);
+                var calibration = settings.GetControllerCalibration(CalibrationKeyForStatus(lastControllerStatus));
                 if (calibration == null) return;
                 // Guard handlers too (including programmatic/gamepad invocation),
                 // not just visual controls. Only write the changed capability.
@@ -2266,7 +2277,7 @@ namespace ApexSenseBridgeTray
             if (settings == null || updatingEffectSettings) return;
             lock (settings)
             {
-                var calibration = settings.GetControllerCalibration(lastControllerStatus);
+                var calibration = settings.GetControllerCalibration(CalibrationKeyForStatus(lastControllerStatus));
                 if (calibration == null) return;
                 calibration.EnableRumble = ChkGripVibrations.IsChecked == true;
             }

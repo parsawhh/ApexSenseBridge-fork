@@ -208,7 +208,11 @@ int commandBridgeTriggers(int argc, char** argv) {
     startup.enter("calibration");
     const bool apex5 = device->capabilities().profiles;
     const bool apex4 = device->capabilities().gyroTuning;
-    const auto verifiedCalibrationModel = apex4 ? "apex4" : apex5 ? "apex5" : apex6Pro ? "apex6" : "";
+    const auto verifiedCalibrationModel =
+        apex4 ? "apex4"
+              : apex5 ? "apex5"
+                      : apex6Pro ? "apex6"
+                                 : (device->backendName() == "beitong" ? "beitong" : "");
     if (!applyControllerCalibration(options, verifiedCalibrationModel, error)) {
         std::cerr << error << '\n';
         return failSession(2, error);

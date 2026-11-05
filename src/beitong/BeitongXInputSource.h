@@ -25,6 +25,7 @@ public:
     ~BeitongXInputSource() override;
 
     static std::unique_ptr<BeitongXInputSource> open(
+        std::uint16_t vendorId,
         std::uint16_t productId,
         std::optional<unsigned int> xinputIndex,
         std::string& error);

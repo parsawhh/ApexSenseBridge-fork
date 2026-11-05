@@ -944,6 +944,50 @@ int runTestRumble(asb::flydigi::Apex5Device& device,
     return 0;
 }
 
+int runTestRumbleVendor(asb::VendorDevice& vendor,
+                        std::uint8_t lowFrequency,
+                        std::uint8_t highFrequency,
+                        unsigned long seconds) {
+    std::string error;
+    std::cout << "Using: " << vendor.describeIdentity() << " ["
+              << vendor.backendName() << "]\n";
+
+    if (!vendor.stopRumble(error)) {
+        std::cerr << "Could not establish a stopped rumble baseline: " << error << '\n';
+        return 12;
+    }
+    asb::RumbleResetGuard resetOnExit(vendor);
+
+    std::cout << "Applying grip vibration (L=" << static_cast<unsigned int>(lowFrequency)
+              << ", R=" << static_cast<unsigned int>(highFrequency) << ") for "
+              << seconds << "s...\n";
+    if (!vendor.queueRumble(lowFrequency, highFrequency, error)) {
+        std::cerr << "Rumble write failed: " << error << '\n';
+        return 12;
+    }
+
+    if (seconds > 0) {
+        const auto duration = std::chrono::seconds(seconds);
+        constexpr auto slice = std::chrono::milliseconds(20);
+        auto elapsed = std::chrono::milliseconds::zero();
+        while (elapsed < duration && !g_stopRequested.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(slice);
+            elapsed += slice;
+        }
+
+        if (!vendor.stopRumble(error)) {
+            std::cerr << "WARNING: automatic rumble stop failed: " << error << '\n';
+            return 12;
+        }
+        resetOnExit.dismiss();
+        std::cout << "Grip rumble stopped.\n";
+    } else {
+        resetOnExit.dismiss();
+        std::cout << "Grip rumble active (hold mode until clear).\n";
+    }
+    return 0;
+}
+
 int commandTestRumble(int argc, char** argv) {
     std::optional<std::size_t> deviceIndex;
     std::uint8_t leftMotor = 48;
@@ -980,12 +1024,12 @@ int commandTestRumble(int argc, char** argv) {
     if (auto* apex = vendor->apex()) {
         return runTestRumble(*apex, leftMotor, rightMotor, seconds);
     }
-    // Deliberately refuses rather than silently doing nothing: the only grip
-    // rumble command this firmware accepts (0x76) drives the shoulder motors and
-    // is not emitted by this project at all.
-    std::cerr << "Grip rumble is not supported on this controller (" << vendor->vendorName()
-              << "). The bridge never sends the shoulder-motor command.\n";
-    return 12;
+    if (!vendor->capabilities().rumble) {
+        std::cerr << "Grip rumble is not supported on this controller ("
+                  << vendor->vendorName() << ").\n";
+        return 12;
+    }
+    return runTestRumbleVendor(*vendor, leftMotor, rightMotor, seconds);
 }
 
 int commandTestProfileSwitch(int argc, char** argv) {

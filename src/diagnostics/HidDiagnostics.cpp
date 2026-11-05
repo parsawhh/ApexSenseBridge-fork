@@ -137,13 +137,23 @@ std::string hex16(std::uint16_t value) {
 }
 
 bool isRelevantHidDevice(const HidDeviceInfo& info) {
-    const bool vendorUsagePage = info.usagePage >= 0xFF00;
+    constexpr std::uint16_t kBeitongVendorId = 0x20BC;
+    constexpr std::uint16_t kBeitongAlterVendorId = 0x20DD;
+    const bool vendorUsagePage = info.usagePage >= 0xFF00 || info.usagePage == 0x00FF;
     return info.vendorId == flydigi::kVendorId ||
+           info.vendorId == kBeitongVendorId ||
+           info.vendorId == kBeitongAlterVendorId ||
            contains(info.path, L"vid_37d7") ||
+           contains(info.path, L"vid_20bc") ||
+           contains(info.path, L"vid_20dd") ||
            contains(info.manufacturer, L"flydigi") ||
            contains(info.manufacturer, L"apex") ||
+           contains(info.manufacturer, L"beitong") ||
+           contains(info.manufacturer, L"betop") ||
            contains(info.product, L"flydigi") ||
            contains(info.product, L"apex") ||
+           contains(info.product, L"beitong") ||
+           contains(info.product, L"kp70") ||
            vendorUsagePage;
 }
 

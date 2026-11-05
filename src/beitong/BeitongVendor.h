@@ -32,10 +32,18 @@ using VendorTransportPtr = std::unique_ptr<platform::HidTransport, VendorTranspo
 class BeitongVendor final : public VendorDevice {
 public:
     static constexpr std::uint16_t kVendorId = 0x20BC;
+    static constexpr std::uint16_t kVendorIdAlter = 0x20DD;
     static constexpr std::uint16_t kProductWired = 0x5173;
     static constexpr std::uint16_t kProductDongle = 0x5174;
     static constexpr std::uint16_t kVendorUsagePage = 0x00FF;
     static constexpr std::uint16_t kVendorUsage = 0x0003;
+
+    [[nodiscard]] static constexpr bool isSupportedVendor(std::uint16_t vendorId) noexcept {
+        return vendorId == kVendorId || vendorId == kVendorIdAlter;
+    }
+    [[nodiscard]] static constexpr bool isSupportedProduct(std::uint16_t productId) noexcept {
+        return productId == kProductWired || productId == kProductDongle;
+    }
 
     BeitongVendor(const BeitongVendor&) = delete;
     BeitongVendor& operator=(const BeitongVendor&) = delete;
@@ -58,10 +66,10 @@ public:
     [[nodiscard]] unsigned connectionTypeRaw() const noexcept override;
 
     bool clearAll(std::string& error) override;
-    // Deliberately a no-op: no 0x76 frame may ever reach the controller.
     bool stopRumble(std::string& error) override;
 
     [[nodiscard]] VendorWriteStats triggerWriteStats() const noexcept override;
+    [[nodiscard]] VendorWriteStats rumbleWriteStats() const noexcept override;
 
     std::unique_ptr<platform::PhysicalInputSource> openInputSource(
         std::optional<unsigned int> xinputIndex,
@@ -88,6 +96,7 @@ private:
     // The virtual DualSense feedback callback and session shutdown may race.
     std::mutex writeMutex_;
     std::atomic<std::uint64_t> writes_{0};
+    std::atomic<std::uint64_t> rumbleWrites_{0};
 };
 
 } // namespace asb::beitong

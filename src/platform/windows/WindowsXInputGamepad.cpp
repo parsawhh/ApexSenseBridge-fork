@@ -78,6 +78,23 @@ public:
         return true;
     }
 
+    bool setVibration(std::uint8_t leftMotor,
+                      std::uint8_t rightMotor,
+                      std::string& error) override {
+        XINPUT_VIBRATION vibration{};
+        vibration.wLeftMotorSpeed =
+            static_cast<WORD>(static_cast<unsigned int>(leftMotor) * 257U);
+        vibration.wRightMotorSpeed =
+            static_cast<WORD>(static_cast<unsigned int>(rightMotor) * 257U);
+        const auto status = XInputSetState(index_, &vibration);
+        if (status != ERROR_SUCCESS) {
+            error = "XInput controller " + std::to_string(index_) +
+                    " disconnected during vibration write";
+            return false;
+        }
+        return true;
+    }
+
     unsigned int index() const noexcept override { return index_; }
 
 private:
@@ -113,7 +130,11 @@ std::vector<unsigned int> matchingXInputGamepads(
                 capabilities = {};
                 status = query(0, index, 0, &capabilities);
             }
-            if (status == ERROR_SUCCESS && capabilities.vendorId == vendorId &&
+            const bool vendorMatches =
+                capabilities.vendorId == vendorId ||
+                ((vendorId == 0x20BC || vendorId == 0x20DD) &&
+                 (capabilities.vendorId == 0x20BC || capabilities.vendorId == 0x20DD));
+            if (status == ERROR_SUCCESS && vendorMatches &&
                 capabilities.productId == productId) {
                 matches.push_back(index);
             }

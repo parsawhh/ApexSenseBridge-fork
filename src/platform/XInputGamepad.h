@@ -19,6 +19,14 @@ public:
         (void)chargeState;
         return false;
     }
+    virtual bool setVibration(std::uint8_t leftMotor,
+                              std::uint8_t rightMotor,
+                              std::string& error) {
+        (void)leftMotor;
+        (void)rightMotor;
+        error = "XInput vibration is not supported on this platform";
+        return false;
+    }
     [[nodiscard]] virtual unsigned int index() const noexcept = 0;
 };
 

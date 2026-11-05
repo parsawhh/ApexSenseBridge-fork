@@ -3,6 +3,7 @@
 #include "beitong/BeitongHybridInputSource.h"
 #include "beitong/BeitongXInputSource.h"
 #include "platform/HidTransport.h"
+#include "platform/XInputGamepad.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -13,12 +14,11 @@ namespace asb::beitong {
 namespace {
 
 bool isSupportedProduct(std::uint16_t productId) noexcept {
-    return productId == BeitongVendor::kProductWired ||
-           productId == BeitongVendor::kProductDongle;
+    return BeitongVendor::isSupportedProduct(productId);
 }
 
 bool matchesVendorCollection(const HidDeviceInfo& info) noexcept {
-    return info.vendorId == BeitongVendor::kVendorId &&
+    return BeitongVendor::isSupportedVendor(info.vendorId) &&
            isSupportedProduct(info.productId) &&
            info.usagePage == BeitongVendor::kVendorUsagePage &&
            info.usage == BeitongVendor::kVendorUsage;
@@ -59,7 +59,7 @@ std::string toUtf8(const std::wstring& text) {
 }
 
 bool matchesGamepadCollection(const HidDeviceInfo& info) noexcept {
-    return info.vendorId == BeitongVendor::kVendorId &&
+    return BeitongVendor::isSupportedVendor(info.vendorId) &&
            isSupportedProduct(info.productId) &&
            info.usagePage == 0x0001U && info.usage == 0x0005U;
 }
@@ -134,15 +134,15 @@ std::string_view BeitongVendor::backendName() const noexcept { return "beitong";
 VendorCapabilities BeitongVendor::capabilities() const noexcept {
     VendorCapabilities caps{};
     caps.adaptiveTriggers = true;
-    // The 0x76 rumble sub-commands are never sent, so the session must not
-    // advertise grip rumble for this backend.
-    caps.rumble = false;
+    // Grip rumble uses standard XInput (XInputSetState) for the handle motors.
+    // The vendor HID 0x76 command (shoulder motors) is never emitted.
+    caps.rumble = true;
     caps.lightbar = false;
     caps.profiles = false;
     caps.pacedWrites = false;
     caps.haptics = false;
     caps.gyroTuning = false;
-    // Input is the XInput endpoint, not this vendor collection.
+    // Input is the XInput/hybrid endpoint, not this vendor collection.
     caps.vendorInput = false;
     return caps;
 }
@@ -160,17 +160,40 @@ bool BeitongVendor::isDongle() const noexcept {
 std::string BeitongVendor::describeIdentity() const {
     std::string product = toUtf8(
         info_.product.empty() ? info_.friendlyName : info_.product);
-    if (product.empty()) product = "Beitong controller";
-    return product + (isDongle() ? " (XInput dongle)" : " (wired)");
+    std::string base = "Beitong Kunpeng 70C";
+    if (!product.empty()) {
+        base += " (" + product + ")";
+    }
+    return base + (isDongle() ? " [dongle]" : " [wired]");
 }
 
 std::string BeitongVendor::connectionName() const {
     return isDongle() ? "2.4GHz dongle" : "USB";
 }
 
-std::uint8_t BeitongVendor::batteryPercent() const noexcept { return 0; }
+std::uint8_t BeitongVendor::batteryPercent() const noexcept {
+    std::string ignored;
+    auto pad = platform::openXInputGamepadForDevice(
+        info_.vendorId, info_.productId, std::nullopt, ignored);
+    std::uint8_t percent = 100;
+    std::uint8_t state = 0;
+    if (pad && pad->queryBattery(percent, state)) {
+        return percent;
+    }
+    return 100;
+}
 
-std::uint8_t BeitongVendor::chargeState() const noexcept { return 0; }
+std::uint8_t BeitongVendor::chargeState() const noexcept {
+    std::string ignored;
+    auto pad = platform::openXInputGamepadForDevice(
+        info_.vendorId, info_.productId, std::nullopt, ignored);
+    std::uint8_t percent = 100;
+    std::uint8_t state = 0;
+    if (pad && pad->queryBattery(percent, state)) {
+        return state;
+    }
+    return 0;
+}
 
 unsigned BeitongVendor::connectionTypeRaw() const noexcept { return 0; }
 
@@ -205,15 +228,28 @@ bool BeitongVendor::clearAll(std::string& error) {
 }
 
 bool BeitongVendor::stopRumble(std::string& error) {
-    // SAFETY: the Beitong 0x76 rumble sub-commands can damage the shoulder/grip
-    // motors. This backend never writes them, so there is nothing to stop.
+    // SAFETY: never emit 0x76 over HID (shoulder motors). Standard grip motors
+    // are stopped through XInputSetState. If the XInput endpoint is asleep or
+    // not yet enumerated, treat baseline stop as already quiet.
     error.clear();
-    return true;
+    std::string openError;
+    auto pad = platform::openXInputGamepadForDevice(
+        info_.vendorId, info_.productId, std::nullopt, openError);
+    if (!pad) {
+        return true;
+    }
+    return pad->setVibration(0, 0, error);
 }
 
 VendorWriteStats BeitongVendor::triggerWriteStats() const noexcept {
     VendorWriteStats stats{};
     stats.writes = writes_.load(std::memory_order_relaxed);
+    return stats;
+}
+
+VendorWriteStats BeitongVendor::rumbleWriteStats() const noexcept {
+    VendorWriteStats stats{};
+    stats.writes = rumbleWrites_.load(std::memory_order_relaxed);
     return stats;
 }
 
@@ -234,7 +270,7 @@ std::unique_ptr<platform::PhysicalInputSource> BeitongVendor::openInputSource(
             return hybrid;
         }
     }
-    return BeitongXInputSource::open(info_.productId, xinputIndex, error);
+    return BeitongXInputSource::open(info_.vendorId, info_.productId, xinputIndex, error);
 }
 
 bool BeitongVendor::queueTriggerRaw(const ForceTriggerCommand& command,
@@ -256,12 +292,19 @@ bool BeitongVendor::queueTriggerRaw(const ForceTriggerCommand& command,
 bool BeitongVendor::queueRumble(std::uint8_t lowFrequencyMotor,
                                 std::uint8_t highFrequencyMotor,
                                 std::string& error) {
-    // Rumble is reported as unsupported (capabilities().rumble == false).
-    // Nothing is written: the only Beitong rumble command is 0x76, which must
-    // never be emitted.
-    (void)lowFrequencyMotor;
-    (void)highFrequencyMotor;
+    // SAFETY: never emit 0x76 on the vendor HID channel (shoulder motors).
+    // Route standard left/right grip vibration through XInputSetState instead.
     error.clear();
+    std::lock_guard lock(writeMutex_);
+    auto pad = platform::openXInputGamepadForDevice(
+        info_.vendorId, info_.productId, std::nullopt, error);
+    if (!pad) {
+        return false;
+    }
+    if (!pad->setVibration(lowFrequencyMotor, highFrequencyMotor, error)) {
+        return false;
+    }
+    rumbleWrites_.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 

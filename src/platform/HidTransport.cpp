@@ -9,8 +9,12 @@ bool queriesHidStrings(HidStringQuery query,
                        std::uint16_t vendorId,
                        std::uint16_t productId) noexcept {
     constexpr std::uint16_t kSonyVendorId = 0x054C;
+    constexpr std::uint16_t kBeitongVendorId = 0x20BC;
+    constexpr std::uint16_t kBeitongAlterVendorId = 0x20DD;
     return query == HidStringQuery::AllDevices || vendorId == flydigi::kVendorId ||
-           vendorId == kSonyVendorId || flydigi::isApex4Product(vendorId, productId);
+           vendorId == kSonyVendorId || vendorId == kBeitongVendorId ||
+           vendorId == kBeitongAlterVendorId ||
+           flydigi::isApex4Product(vendorId, productId);
 }
 
 }

@@ -6,13 +6,6 @@
 #include <utility>
 
 namespace asb::beitong {
-namespace {
-
-// Must match BeitongVendor::kVendorId. Kept local so the input source does not
-// depend on the vendor header.
-constexpr std::uint16_t kBeitongVendorId = 0x20BC;
-
-} // namespace
 
 BeitongXInputSource::BeitongXInputSource(
     std::unique_ptr<platform::XInputGamepad> gamepad)
@@ -21,11 +14,12 @@ BeitongXInputSource::BeitongXInputSource(
 BeitongXInputSource::~BeitongXInputSource() = default;
 
 std::unique_ptr<BeitongXInputSource> BeitongXInputSource::open(
+    std::uint16_t vendorId,
     std::uint16_t productId,
     std::optional<unsigned int> xinputIndex,
     std::string& error) {
     auto gamepad = platform::openXInputGamepadForDevice(
-        kBeitongVendorId, productId, xinputIndex, error);
+        vendorId, productId, xinputIndex, error);
     if (!gamepad) {
         if (error.empty()) {
             error = "No XInput endpoint belongs to the selected Beitong controller.";
