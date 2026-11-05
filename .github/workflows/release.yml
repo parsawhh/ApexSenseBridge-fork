@@ -72,6 +72,17 @@ jobs:
           }
           .\scripts\verify-version-consistency.ps1 @verifyParams
 
+      - name: Upload portable build for branch runs
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ApexSenseBridge-portable
+          path: |
+            dist/ApexSenseBridge-Portable.zip
+            dist/ApexSenseBridge-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Extract Release Notes from CHANGELOG
         shell: powershell
         run: |
