@@ -156,17 +156,23 @@ TriggerFrame BeitongTriggerTranslator::encode(const ForceTriggerCommand& command
 
     case TriggerMode::RecoilRattle:
     case TriggerMode::Vibration: {
-        // Mode 0x02: start %, cadence index (5..100 mapped from 10..240 Hz), amplitude %.
+        // Mode 0x02: start %, cadence index (mapped to physical kick range 6..32), amplitude %.
         // Matches official Betop firmware mt_type = 1 (Vibration/Recoil).
+        // Official Betop app sets machine gun freq = 6 (kp70c2.js:1131). Clamping
+        // the ceiling to 32 preserves distinct mechanical trigger kicks rather than
+        // dissolving into an imperceptible high-frequency micro-buzz.
+        // frame[8] (start_data) MUST be 0x01 (1 = 开启 enabled).
         frame[3] = kModeGunVibration;
         const unsigned startZone = zoneFromStroke(command.params[0]);
         frame[4] = zoneToPercent(startZone);
         const std::uint8_t rawHz =
             command.params[3] != 0 ? command.params[3]
-                                   : (command.params[1] > 1 ? command.params[1] : 100);
+                                   : (command.params[1] > 1 ? command.params[1] : 75);
         frame[5] = static_cast<std::uint8_t>(
-            std::clamp(scaleRange(rawHz, 10, 240, 5, 100), 5, 100));
+            std::clamp(scaleRange(rawHz, 10, 240, 6, 32), 6, 32));
         frame[6] = scaleVibeAmplitude(command.params[2]);
+        frame[7] = 0x00;
+        frame[8] = 0x01; // start_data = 1 (Enabled)
         break;
     }
 
