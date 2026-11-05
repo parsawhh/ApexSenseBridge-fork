@@ -469,7 +469,12 @@ bool writeRecoverySnapshot(const RecoverySnapshot& snapshot, std::string& error)
     DWORD disposition = 0;
     const auto status = RegCreateKeyExW(
         HKEY_CURRENT_USER, kRecoveryKey, 0, nullptr, 0,
-        KEY_QUERY_VALUE | KEY_SET_VALUE, nullptr, &rawKey, &disposition);
+        // KEY_CREATE_SUB_KEY is required for RegCreateKeyExW to create the key
+        // at all; without it the call fails with ERROR_ACCESS_DENIED on any
+        // machine where the key does not already exist (portable installs, and
+        // every first run on a clean profile).
+        KEY_CREATE_SUB_KEY | KEY_QUERY_VALUE | KEY_SET_VALUE, nullptr, &rawKey,
+        &disposition);
     if (status != ERROR_SUCCESS) {
         error = windowsError("Creating the controller recovery marker", status);
         return false;
