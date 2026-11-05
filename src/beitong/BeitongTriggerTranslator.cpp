@@ -14,9 +14,13 @@ constexpr std::uint8_t kSideLeft = 0x00;
 constexpr std::uint8_t kSideRight = 0x01;
 
 constexpr std::uint8_t kModeOff = 0x00;
+// In official Betop firmware (kp70c2.js mt_type):
+//   mt_type = 0 -> 阻尼 Damping (0x01 on wire)
+//   mt_type = 1 -> 震动 Vibration / Recoil (0x02 on wire)
+//   mt_type = 2 -> 突破 Shot / Breakpoint (0x03 on wire)
 constexpr std::uint8_t kModeRace = 0x01;
-constexpr std::uint8_t kModeShotBreak = 0x02;
-constexpr std::uint8_t kModeGunVibration = 0x03;
+constexpr std::uint8_t kModeGunVibration = 0x02;
+constexpr std::uint8_t kModeShotBreak = 0x03;
 
 // FORCEADAPT parameter layout (see flydigi/Apex5Protocol.cpp buildForceTrigger,
 // buildForceTriggerRaw, and dualsense/AdaptiveTriggerTranslation.cpp, which
@@ -127,9 +131,10 @@ TriggerFrame BeitongTriggerTranslator::encode(const ForceTriggerCommand& command
     }
 
     case TriggerMode::SniperBreak: {
-        // Mode 2: wall start %, snap/click point %, wall force %, return force %, 1.
-        // Matches beitong_bridge.c:147-156 and AdaptiveTriggerTranslation.cpp:44-53:
-        // params[0] = start stroke, params[1] = span/length stroke, params[2] = force.
+        // Mode 0x03: wall start %, snap/click point %, wall force %, return force %, 1.
+        // Matches official Betop firmware mt_type = 2 (Shot/Breakpoint).
+        // Return force (frame[7]) is set to 0 so once the wall snaps, the trigger
+        // stays completely free to travel to the stop and only re-arms on release.
         frame[3] = kModeShotBreak;
         const unsigned startZone = zoneFromStroke(command.params[0]);
         const unsigned endStroke = static_cast<unsigned>(command.params[0]) +
@@ -144,15 +149,15 @@ TriggerFrame BeitongTriggerTranslator::encode(const ForceTriggerCommand& command
         frame[4] = startPct;
         frame[5] = endPct;
         frame[6] = forcePct;
-        frame[7] = static_cast<std::uint8_t>(forcePct / 2U);
+        frame[7] = 0x00; // Zero pushback after break: stays free until released
         frame[8] = 0x01;
         break;
     }
 
     case TriggerMode::RecoilRattle:
     case TriggerMode::Vibration: {
-        // Mode 3: start %, cadence index (5..100 mapped from 10..240 Hz), amplitude %.
-        // Matches beitong_bridge.c:157-164 and AdaptiveTriggerTranslation.cpp:82-127.
+        // Mode 0x02: start %, cadence index (5..100 mapped from 10..240 Hz), amplitude %.
+        // Matches official Betop firmware mt_type = 1 (Vibration/Recoil).
         frame[3] = kModeGunVibration;
         const unsigned startZone = zoneFromStroke(command.params[0]);
         frame[4] = zoneToPercent(startZone);
