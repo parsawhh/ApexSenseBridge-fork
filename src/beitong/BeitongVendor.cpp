@@ -256,20 +256,8 @@ VendorWriteStats BeitongVendor::rumbleWriteStats() const noexcept {
 std::unique_ptr<platform::PhysicalInputSource> BeitongVendor::openInputSource(
     std::optional<unsigned int> xinputIndex,
     std::string& error) {
-    // Prefer the hybrid source: the HID gamepad collection carries the stick
-    // axes at roughly 2.2 kHz, while XInput supplies the independent LT/RT that
-    // the HID report cannot express (it encodes one differential trigger axis).
-    // Fall back to plain XInput if that collection is absent, so other BeiTong
-    // models still work with slower sticks.
-    HidDeviceInfo gamepadInterface{};
-    if (findGamepadInterface(gamepadInterface)) {
-        std::string hybridError;
-        if (auto hybrid = BeitongHybridInputSource::open(
-                gamepadInterface, xinputIndex, hybridError)) {
-            error.clear();
-            return hybrid;
-        }
-    }
+    // The Beitong controller maps all sticks, analog triggers, and digital buttons
+    // through XInput (XInputGetState). The HID gamepad collection is a static stub.
     return BeitongXInputSource::open(info_.vendorId, info_.productId, xinputIndex, error);
 }
 

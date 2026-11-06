@@ -1271,10 +1271,13 @@ bool apexGameDevicePaths(const HidDeviceInfo& apexInterface,
         // input, FORCEADAPT and rumble transports.
         const bool apex4AuxiliaryInput = apex4DInput &&
                                          normalized.find(L"&MI_01") != std::wstring::npos;
+        const bool beitongAuxiliary = isBeitong &&
+            (normalized.find(L"&COL02") != std::wstring::npos ||
+             normalized.find(L"&COL03") != std::wstring::npos);
         const bool hidGamepad = normalized.starts_with(L"HID\\") &&
             (apex4DInput
                  ? apex4Gamepad || apex4AuxiliaryInput
-                 : normalized.find(L"&IG_") != std::wstring::npos);
+                 : (normalized.find(L"&IG_") != std::wstring::npos || beitongAuxiliary));
         const bool usbGameInterface = normalized.starts_with(L"USB\\") &&
             (normalized.find(L"&MI_00") != std::wstring::npos ||
              apex4AuxiliaryInput);
@@ -1294,9 +1297,6 @@ bool apexGameDevicePaths(const HidDeviceInfo& apexInterface,
     if (!foundHidGamepad || !foundUsbGameInterface ||
         !foundHidAuxiliaryInput || !foundUsbAuxiliaryInput) {
         if (isBeitong) {
-            if (paths.empty() && !apexInterface.instanceId.empty()) {
-                paths.push_back(apexInterface.instanceId);
-            }
             return !paths.empty();
         }
         error = apex4DInput
