@@ -69,7 +69,28 @@ std::optional<ForceTriggerCommand> translateNativeTrigger(
     TriggerSide side, const std::array<std::uint8_t, 11>& effect) {
     const auto mask = static_cast<unsigned>(effect[1]) |
                       (static_cast<unsigned>(effect[2]) << 8U);
-    if ((mask & ~0x03FFU) != 0) return std::nullopt;
+    if ((mask & ~0x03FFU) != 0) {
+        // DualSenseX / DualSensitive custom and extended profile fallback:
+        // PC mods like Control pass effect[1] as start position and effect[2..3] as force/end,
+        // which sets bits above 0x03FF. When effect[3] is non-zero, map it to the corresponding
+        // FORCEADAPT mode rather than rejecting it as an invalid Sony bitmask.
+        if (effect[3] != 0) {
+            const std::uint8_t start = effect[1];
+            const std::uint8_t force = effect[3];
+            if (effect[0] == 0x25) {
+                const std::uint8_t snap = effect[2] > start ? static_cast<std::uint8_t>(effect[2] - start) : 30;
+                return make(side, TriggerMode::SniperBreak, {start, snap, force, 0, 0});
+            }
+            if (effect[0] == 0x26 || effect[0] == 0x23 || effect[0] == 0x27) {
+                const std::uint8_t freq = effect[4] != 0 ? effect[4] : (effect[9] != 0 ? effect[9] : 60);
+                return make(side, TriggerMode::RecoilRattle, {start, 1, force, freq, 0});
+            }
+            if (effect[0] == 0x21 || effect[0] == 0x22) {
+                return make(side, TriggerMode::Race, {start, force, 0, 0, 0});
+            }
+        }
+        return std::nullopt;
+    }
     if (mask == 0) return make(side, TriggerMode::Normal);
 
     const auto zones = scanZones(mask);
