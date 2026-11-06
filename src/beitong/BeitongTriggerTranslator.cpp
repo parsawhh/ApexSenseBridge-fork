@@ -14,13 +14,13 @@ constexpr std::uint8_t kSideLeft = 0x00;
 constexpr std::uint8_t kSideRight = 0x01;
 
 constexpr std::uint8_t kModeOff = 0x00;
-// In official Betop firmware (kp70c2.js mt_type):
-//   mt_type = 0 -> 阻尼 Damping (0x01 on wire)
-//   mt_type = 1 -> 震动 Vibration / Recoil (0x02 on wire)
-//   mt_type = 2 -> 突破 Shot / Breakpoint (0x03 on wire)
+// Wire opcode constants matching official Beitong hardware & dualsense_proto.h:
+//   0x01 -> 阻尼 Continuous Damping (Race / Resistance)
+//   0x02 -> 突破 Shot / Breakpoint (Tactile wall with break and return snap)
+//   0x03 -> 震动 Recoil Pulses / Gun Vibration
 constexpr std::uint8_t kModeRace = 0x01;
-constexpr std::uint8_t kModeGunVibration = 0x02;
-constexpr std::uint8_t kModeShotBreak = 0x03;
+constexpr std::uint8_t kModeShotBreak = 0x02;
+constexpr std::uint8_t kModeGunVibration = 0x03;
 
 // FORCEADAPT parameter layout (see flydigi/Apex5Protocol.cpp buildForceTrigger,
 // buildForceTriggerRaw, and dualsense/AdaptiveTriggerTranslation.cpp, which
@@ -131,10 +131,8 @@ TriggerFrame BeitongTriggerTranslator::encode(const ForceTriggerCommand& command
     }
 
     case TriggerMode::SniperBreak: {
-        // Mode 0x03: wall start %, snap/click point %, wall force %, return force %, 1.
-        // Matches official Betop firmware mt_type = 2 (Shot/Breakpoint).
-        // Return force (frame[7]) is set to 0 so once the wall snaps, the trigger
-        // stays completely free to travel to the stop and only re-arms on release.
+        // Mode 0x02: wall start %, snap/click point %, wall force %, return force %, 1.
+        // Matches official Betop firmware Shot/Breakpoint (0x02 on wire).
         frame[3] = kModeShotBreak;
         const unsigned startZone = zoneFromStroke(command.params[0]);
         const unsigned endStroke = static_cast<unsigned>(command.params[0]) +
@@ -149,7 +147,7 @@ TriggerFrame BeitongTriggerTranslator::encode(const ForceTriggerCommand& command
         frame[4] = startPct;
         frame[5] = endPct;
         frame[6] = forcePct;
-        frame[7] = 0x00; // Zero pushback after break: stays free until released
+        frame[7] = forcePct / 2; // Return snap strength (matching reference engine ds2bt_engine.c:214)
         frame[8] = 0x01;
         break;
     }
